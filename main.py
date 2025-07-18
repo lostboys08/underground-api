@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from reportlab.pdfgen import canvas
@@ -25,9 +25,9 @@ async def health_check():
     return {"status": "healthy", "service": "underground-api"}
 
 @app.get("/generate-pdf")
-async def generate_pdf():
+async def generate_pdf(text: str = Query(default="Hello World", description="Text to display in the PDF")):
     """
-    Generate a PDF with "Hello World" - no authentication required
+    Generate a PDF with custom text - no authentication required
     """
     # Create a buffer to store the PDF
     buffer = BytesIO()
@@ -38,9 +38,15 @@ async def generate_pdf():
     # Get the page dimensions
     width, height = letter
     
-    # Add "Hello World" text to the PDF
+    # Add the custom text to the PDF
     p.setFont("Helvetica", 24)
-    p.drawString(width/2 - 50, height/2, "Hello World")
+    
+    # Calculate text width to center it
+    text_width = p.stringWidth(text, "Helvetica", 24)
+    x_position = (width - text_width) / 2
+    y_position = height / 2
+    
+    p.drawString(x_position, y_position, text)
     
     # Add timestamp to the PDF
     from datetime import datetime
@@ -60,7 +66,7 @@ async def generate_pdf():
     return Response(
         content=pdf_content,
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=hello_world.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=pdf_with_text.pdf"}
     )
 
 @app.exception_handler(HTTPException)
