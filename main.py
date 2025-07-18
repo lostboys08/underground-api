@@ -108,6 +108,99 @@ async def debug_env():
     
     return env_status
 
+@app.get("/debug/supabase")
+async def debug_supabase():
+    """Test Supabase database connectivity"""
+    debug_info = {
+        "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local",
+        "config_status": {},
+        "connection_test": {},
+        "table_tests": {}
+    }
+    
+    try:
+        # Test 1: Configuration
+        from config.supabase_client import get_supabase_config
+        config = get_supabase_config()
+        
+        debug_info["config_status"] = {
+            "is_configured": config.is_configured(),
+            "has_url": bool(config.url),
+            "has_service_key": bool(config.service_role_key),
+            "has_anon_key": bool(config.anon_key),
+            "url_preview": config.url[:30] + "..." if config.url else None
+        }
+        
+        if not config.is_configured():
+            debug_info["error"] = "Supabase not configured - missing required environment variables"
+            return debug_info
+        
+        # Test 2: Basic connectivity - step by step
+        try:
+            debug_info["connection_test"]["step"] = "Creating client"
+            client = config.service_client
+            debug_info["connection_test"]["client_created"] = True
+            debug_info["connection_test"]["step"] = "Client created successfully"
+            
+            # Test 3: Simple query (count companies) - break it down
+            debug_info["connection_test"]["step"] = "Attempting table query"
+            companies_table = client.table("companies")
+            debug_info["connection_test"]["table_object_created"] = True
+            
+            debug_info["connection_test"]["step"] = "Executing select query"
+            result = companies_table.select("*").limit(1).execute()
+            debug_info["connection_test"]["query_executed"] = True
+            
+            debug_info["table_tests"]["companies"] = {
+                "accessible": True,
+                "has_data": bool(result.data),
+                "data_count": len(result.data) if result.data else 0,
+                "result_type": type(result).__name__
+            }
+            
+        except Exception as e:
+            debug_info["connection_test"]["error"] = str(e)
+            debug_info["connection_test"]["error_type"] = type(e).__name__
+            debug_info["connection_test"]["client_created"] = "client" in locals()
+            debug_info["connection_test"]["failed_at_step"] = debug_info["connection_test"].get("step", "unknown")
+        
+        # Test 4: Try profiles table
+        try:
+            if "client" in locals():
+                result = client.table("profiles").select("count", count="exact").execute()
+                debug_info["table_tests"]["profiles"] = {
+                    "accessible": True,
+                    "count": result.count if hasattr(result, 'count') else "unknown",
+                    "has_data": bool(result.data)
+                }
+        except Exception as e:
+            debug_info["table_tests"]["profiles"] = {
+                "accessible": False,
+                "error": str(e)
+            }
+        
+        # Test 5: Authentication table access
+        try:
+            if "client" in locals():
+                # This might fail if RLS is enabled
+                result = client.table("auth.users").select("count", count="exact").limit(1).execute()
+                debug_info["table_tests"]["auth_users"] = {
+                    "accessible": True,
+                    "note": "Can access auth.users table"
+                }
+        except Exception as e:
+            debug_info["table_tests"]["auth_users"] = {
+                "accessible": False,
+                "error": str(e),
+                "note": "This is normal if RLS is enabled"
+            }
+            
+    except Exception as e:
+        debug_info["fatal_error"] = str(e)
+        debug_info["error_type"] = type(e).__name__
+    
+    return debug_info
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Custom exception handler for better error responses"""

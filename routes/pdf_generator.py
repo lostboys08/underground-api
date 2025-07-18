@@ -13,6 +13,117 @@ router = APIRouter(prefix="/pdf", tags=["PDF Generation"])
 # Bluestakes API configuration
 BLUESTAKES_BASE_URL = "https://newtiny-api.bluestakes.org/api"
 
+@router.post("/test-bluestakes-auth")
+async def test_bluestakes_auth(
+    username: str = Query(..., description="Bluestakes username"),
+    password: str = Query(..., description="Bluestakes password")
+):
+    """
+    Test endpoint to debug Bluestakes authentication
+    Returns raw response from Bluestakes API
+    """
+    if not username or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Username and password are required"
+        )
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            auth_data = {
+                "username": username,
+                "password": password
+            }
+            
+            response = await client.post(
+                f"{BLUESTAKES_BASE_URL}/login-json",
+                json=auth_data,
+                headers={"Content-Type": "application/json"},
+                timeout=10.0
+            )
+            
+            # Return comprehensive debug info
+            debug_info = {
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "url": str(response.url),
+                "request_data": auth_data,
+                "response_text": response.text,
+                "success": response.status_code == 200
+            }
+            
+            # Try to parse JSON if possible
+            try:
+                debug_info["response_json"] = response.json()
+            except:
+                debug_info["response_json"] = None
+                debug_info["json_parse_error"] = "Could not parse response as JSON"
+            
+            return debug_info
+            
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=408,
+                detail="Request to Bluestakes API timed out"
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Request error: {str(e)}"
+            )
+        except Exception as e:
+                         raise HTTPException(
+                 status_code=500,
+                 detail=f"Unexpected error: {str(e)}"
+             )
+
+@router.post("/test-bluestakes-full")
+async def test_bluestakes_full_flow(
+    username: str = Query(..., description="Bluestakes username"),
+    password: str = Query(..., description="Bluestakes password"),
+    ticket: str = Query(..., description="Test ticket number")
+):
+    """
+    Test the full Bluestakes flow: auth + API call
+    """
+    try:
+        # Step 1: Get auth token using our fixed function
+        token = await get_bluestakes_auth_token(username, password)
+        
+        # Step 2: Test making an API call with the token
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Try to get ticket details
+            response = await client.get(
+                f"{BLUESTAKES_BASE_URL}/tickets/{ticket}",
+                headers=headers,
+                timeout=10.0
+            )
+            
+            return {
+                "auth_success": True,
+                "token_extracted": token[:20] + "...",  # Show first 20 chars of token
+                "api_call_status": response.status_code,
+                "api_call_success": response.status_code == 200,
+                "response_preview": response.text[:200] + "..." if len(response.text) > 200 else response.text
+            }
+            
+    except HTTPException as e:
+        return {
+            "auth_success": False,
+            "error": e.detail,
+            "status_code": e.status_code
+        }
+    except Exception as e:
+        return {
+            "auth_success": False,
+            "error": f"Unexpected error: {str(e)}"
+        }
+
 async def get_bluestakes_auth_token(username: str, password: str) -> str:
     """
     Get authentication token from Bluestakes API using the /login-json endpoint
@@ -40,16 +151,21 @@ async def get_bluestakes_auth_token(username: str, password: str) -> str:
             
             if response.status_code == 200:
                 data = response.json()
-                # Look for common token field names in the response
+                
+                # Bluestakes returns token in "Authorization" field as "Bearer [token]"
+                if "Authorization" in data:
+                    auth_header = data["Authorization"]
+                    # Extract just the token part (remove "Bearer " prefix)
+                    if auth_header.startswith("Bearer "):
+                        return auth_header[7:]  # Remove "Bearer " (7 characters)
+                    else:
+                        return auth_header  # Return as-is if no Bearer prefix
+                
+                # Fallback: look for other common token field names
                 token_fields = ["token", "access_token", "auth_token", "bearer_token", "jwt", "session_token"]
                 for field in token_fields:
                     if field in data:
                         return data[field]
-                
-                # If no standard token field found, check if the whole response contains auth info
-                if "authenticated" in str(data).lower() or "success" in str(data).lower():
-                    # Return the whole response data for now - we'll need to check what the actual response looks like
-                    return json.dumps(data)
                 
                 raise HTTPException(
                     status_code=500,
