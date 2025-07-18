@@ -1,12 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-from config.supabase_client import supabase_service
+from config.supabase_client import get_service_client
 from utils.auth import get_current_user_id
+from utils.encryption import encrypt_password, decrypt_password
 import logging
-import base64
-from cryptography.fernet import Fernet
-import os
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
 
@@ -50,41 +48,6 @@ class CompanyResponse(BaseModel):
 class CompanyWithProjects(CompanyResponse):
     project_count: Optional[int] = None
 
-# Encryption/Decryption utilities for Bluestakes passwords
-def get_encryption_key() -> bytes:
-    """Get or generate encryption key for Bluestakes passwords"""
-    key = os.getenv("ENCRYPTION_KEY")
-    if not key:
-        # In production, you should set this as an environment variable
-        # For now, we'll use a default key (NOT secure for production)
-        logging.warning("No ENCRYPTION_KEY found, using default (not secure for production)")
-        key = "default-key-change-in-production-please"
-    
-    # Ensure key is 32 bytes for Fernet
-    key_bytes = key.encode()
-    if len(key_bytes) < 32:
-        key_bytes = key_bytes.ljust(32, b'0')
-    else:
-        key_bytes = key_bytes[:32]
-    
-    return base64.urlsafe_b64encode(key_bytes)
-
-def encrypt_password(password: str) -> Optional[bytes]:
-    """Encrypt a password for storage"""
-    if not password:
-        return None
-    
-    fernet = Fernet(get_encryption_key())
-    return fernet.encrypt(password.encode())
-
-def decrypt_password(encrypted_password: bytes) -> Optional[str]:
-    """Decrypt a password from storage"""
-    if not encrypted_password:
-        return None
-    
-    fernet = Fernet(get_encryption_key())
-    return fernet.decrypt(encrypted_password).decode()
-
 @router.post("/", response_model=CompanyResponse)
 async def create_company(company: CompanyCreate):
     """
@@ -107,7 +70,7 @@ async def create_company(company: CompanyCreate):
         if company.bluestakes_password:
             insert_data["bluestakes_password_encrypted"] = encrypt_password(company.bluestakes_password)
         
-        result = supabase_service.table("companies").insert(insert_data).execute()
+        result = get_service_client().table("companies").insert(insert_data).execute()
         
         if not result.data:
             raise HTTPException(status_code=400, detail="Failed to create company")
@@ -125,7 +88,7 @@ async def get_company(company_id: int):
     Get a company by ID
     """
     try:
-        result = supabase_service.table("companies").select("*").eq("id", company_id).execute()
+        result = get_service_client().table("companies").select("*").eq("id", company_id).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Company not found")
@@ -149,7 +112,7 @@ async def list_companies(
     """
     try:
         # Get companies with project counts
-        result = (supabase_service.table("companies")
+        result = (get_service_client().table("companies")
                  .select("*, projects(count)")
                  .range(offset, offset + limit - 1)
                  .execute())
@@ -203,7 +166,7 @@ async def update_company(company_id: int, company_update: CompanyUpdate):
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
         
-        result = (supabase_service.table("companies")
+        result = (get_service_client().table("companies")
                  .update(update_data)
                  .eq("id", company_id)
                  .execute())
@@ -227,7 +190,7 @@ async def delete_company(company_id: int):
     Note: This might fail if there are related records (projects, profiles, etc.)
     """
     try:
-        result = supabase_service.table("companies").delete().eq("id", company_id).execute()
+        result = get_service_client().table("companies").delete().eq("id", company_id).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Company not found")
@@ -251,7 +214,7 @@ async def get_company_bluestakes_credentials(
     """
     try:
         # Check if user has access to this company
-        profile_result = (supabase_service.table("profiles")
+        profile_result = (get_service_client().table("profiles")
                          .select("company_id, role")
                          .eq("user_id", current_user_id)
                          .execute())
@@ -268,7 +231,7 @@ async def get_company_bluestakes_credentials(
             raise HTTPException(status_code=403, detail="Access denied to company credentials")
         
         # Get company with encrypted credentials
-        result = (supabase_service.table("companies")
+        result = (get_service_client().table("companies")
                  .select("bluestakes_username, bluestakes_password_encrypted")
                  .eq("id", company_id)
                  .execute())

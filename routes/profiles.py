@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from config.supabase_client import supabase_service, get_user_client
+from config.supabase_client import get_service_client, get_user_client
 from utils.auth import get_current_user_id, get_current_user_optional
 import logging
 
@@ -48,7 +48,7 @@ async def create_profile(profile: ProfileCreate):
     """
     try:
         # Insert profile into Supabase
-        result = supabase_service.table("profiles").insert({
+        result = get_service_client().table("profiles").insert({
             "user_id": str(profile.user_id),
             "display_name": profile.display_name,
             "avatar_url": profile.avatar_url,
@@ -74,7 +74,7 @@ async def get_profile(profile_id: int):
     Get a profile by ID with company information
     """
     try:
-        result = (supabase_service.table("profiles")
+        result = (get_service_client().table("profiles")
                  .select("*, companies(name)")
                  .eq("id", profile_id)
                  .execute())
@@ -113,7 +113,7 @@ async def list_profiles(
     List profiles with optional filtering by company and role
     """
     try:
-        query = (supabase_service.table("profiles")
+        query = (get_service_client().table("profiles")
                 .select("*, companies(name)")
                 .range(offset, offset + limit - 1))
         
@@ -166,7 +166,7 @@ async def update_profile(profile_id: int, profile_update: ProfileUpdate):
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
         
-        result = (supabase_service.table("profiles")
+        result = (get_service_client().table("profiles")
                  .update(update_data)
                  .eq("id", profile_id)
                  .execute())
@@ -190,7 +190,7 @@ async def delete_profile(profile_id: int):
     Uses service role client
     """
     try:
-        result = supabase_service.table("profiles").delete().eq("id", profile_id).execute()
+        result = get_service_client().table("profiles").delete().eq("id", profile_id).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Profile not found")
@@ -210,7 +210,7 @@ async def get_my_profile(current_user_id: str = Depends(get_current_user_id)):
     Get current authenticated user's profile
     """
     try:
-        result = (supabase_service.table("profiles")
+        result = (get_service_client().table("profiles")
                  .select("*, companies(name)")
                  .eq("user_id", current_user_id)
                  .execute())
@@ -264,7 +264,7 @@ async def update_my_profile(
             raise HTTPException(status_code=400, detail="No fields to update")
         
         # Update only the current user's profile
-        result = (supabase_service.table("profiles")
+        result = (get_service_client().table("profiles")
                  .update(update_data)
                  .eq("user_id", current_user_id)
                  .execute())
@@ -287,7 +287,7 @@ async def get_profile_by_user_id(user_id: UUID):
     Get a profile by user_id (auth.users.id)
     """
     try:
-        result = (supabase_service.table("profiles")
+        result = (get_service_client().table("profiles")
                  .select("*, companies(name)")
                  .eq("user_id", str(user_id))
                  .execute())

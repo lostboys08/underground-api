@@ -168,10 +168,10 @@ async def generate_pdf(
     if company_id:
         try:
             # Get stored credentials from company
-            from config.supabase_client import supabase_service
-            from routes.companies import decrypt_password
+            from config.supabase_client import get_service_client
+            from utils.encryption import decrypt_password
             
-            company_result = (supabase_service.table("companies")
+            company_result = (get_service_client().table("companies")
                              .select("bluestakes_username, bluestakes_password_encrypted")
                              .eq("id", company_id)
                              .execute())
