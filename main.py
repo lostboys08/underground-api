@@ -81,6 +81,14 @@ try:
 except Exception as e:
     logger.error(f"Failed to load Companies router: {e}")
 
+try:
+    from routes.tickets import router as tickets_router
+    app.include_router(tickets_router)
+    routers_loaded.append("Tickets")
+    logger.info("Tickets router loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load Tickets router: {e}")
+
 @app.get("/")
 async def root():
     return {
@@ -93,7 +101,8 @@ async def root():
             "health": "/health", 
             "pdf_generation": "/pdf/generate" if "PDF Generator" in routers_loaded else "unavailable",
             "user_profiles": "/profiles/" if "User Profiles" in routers_loaded else "unavailable",
-            "companies": "/companies/" if "Companies" in routers_loaded else "unavailable"
+            "companies": "/companies/" if "Companies" in routers_loaded else "unavailable",
+            "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable"
         },
         "authentication": {
             "type": "API Key",
