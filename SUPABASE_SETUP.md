@@ -1,12 +1,12 @@
 # Supabase Integration Setup Guide
 
-This guide walks you through setting up Supabase with your FastAPI application.
+This guide walks you through setting up Supabase with your existing FastAPI application and project management schema.
 
 ## 📋 Prerequisites
 
 - Python 3.8+
-- A Supabase account (https://supabase.com)
-- A Supabase project created
+- Existing Supabase project with your schema already set up
+- Environment variables configured
 
 ## 🚀 Quick Setup
 
@@ -26,6 +26,9 @@ SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 SUPABASE_ANON_KEY=your-anon-key-here
 SUPABASE_JWT_SECRET=your-jwt-secret-here
+
+# Encryption key for stored passwords (set this in production!)
+ENCRYPTION_KEY=your-secure-encryption-key-here
 ```
 
 **Where to find these values:**
@@ -37,21 +40,37 @@ SUPABASE_JWT_SECRET=your-jwt-secret-here
    - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY`
    - **JWT Secret** → `SUPABASE_JWT_SECRET`
 
-### 3. Database Setup
+### 3. Schema Overview
 
-Run the SQL schema in your Supabase SQL Editor:
+Your existing Supabase schema includes:
 
-```bash
-# Copy and paste the contents of sql/users_table.sql
-# into Supabase Dashboard → SQL Editor
-```
+```sql
+-- Main entities
+companies          # Business entities with Bluestakes credentials
+profiles           # User profiles linked to auth.users
+projects           # Projects belonging to companies  
+project_tickets    # Tickets within projects
 
-Or use the Supabase CLI:
-```bash
-supabase db reset
+-- Junction tables
+company_projects   # Many-to-many: companies ↔ projects
+user_projects     # User assignments to projects
 ```
 
 ## 🏗️ Architecture Overview
+
+### Database Schema
+
+**Companies Table:**
+- Store company information and encrypted Bluestakes credentials
+- Used for PDF generation with stored credentials
+
+**Profiles Table:**
+- Linked to Supabase Auth users via `user_id` (UUID)
+- Contains user roles and company assignments
+
+**Projects & Tickets:**
+- Hierarchical project management system
+- Tickets are assigned to users and tracked within projects
 
 ### Client Types
 
@@ -77,195 +96,192 @@ project/
 ├── config/
 │   └── supabase_client.py    # Supabase configuration
 ├── routes/
-│   ├── users.py              # User CRUD operations
-│   └── pdf_generator.py      # Existing PDF routes
+│   ├── profiles.py           # User profile management
+│   ├── companies.py          # Company & credentials management
+│   └── pdf_generator.py      # Enhanced PDF with stored credentials
 ├── utils/
 │   └── auth.py               # JWT verification utilities
-├── sql/
-│   └── users_table.sql       # Database schema
-└── main.py                   # FastAPI app with routers
+└── main.py                   # FastAPI app with all routers
 ```
 
 ## 🔌 API Endpoints
 
-### User Management
+### User Profile Management (`/profiles`)
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/users/` | Create user | ❌ |
-| GET | `/users/{id}` | Get user by ID | ❌ |
-| GET | `/users/` | List users (paginated) | ❌ |
-| PUT | `/users/{id}` | Update user | ❌ |
-| DELETE | `/users/{id}` | Delete user | ❌ |
-| GET | `/users/profile/me` | Get current user profile | ✅ |
-| PUT | `/users/profile/me` | Update current user profile | ✅ |
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/profiles/` | Create user profile | ❌ |
+| GET | `/profiles/{id}` | Get profile by ID | ❌ |
+| GET | `/profiles/` | List profiles (filtered) | ❌ |
+| PUT | `/profiles/{id}` | Update profile | ❌ |
+| DELETE | `/profiles/{id}` | Delete profile | ❌ |
+| GET | `/profiles/me/profile` | Get my profile | ✅ JWT |
+| PUT | `/profiles/me/profile` | Update my profile | ✅ JWT |
+| GET | `/profiles/by-user/{user_id}` | Get profile by user_id | ❌ |
 
-### Usage Examples
+### Company Management (`/companies`)
 
-#### Create a User
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/companies/` | Create company | ❌ |
+| GET | `/companies/{id}` | Get company | ❌ |
+| GET | `/companies/` | List companies | ❌ |
+| PUT | `/companies/{id}` | Update company | ❌ |
+| DELETE | `/companies/{id}` | Delete company | ❌ |
+| GET | `/companies/{id}/bluestakes-credentials` | Get stored credentials | ✅ JWT |
+
+### Enhanced PDF Generation (`/pdf`)
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/pdf/generate` | Generate ticket PDF | ❌ |
+
+**PDF Generation Options:**
+- **Option 1:** Use stored company credentials: `?ticket=123&company_id=1`
+- **Option 2:** Provide credentials directly: `?ticket=123&username=user&password=pass`
+
+## 🔐 Security Features
+
+### Password Encryption
+
+Bluestakes passwords are encrypted using Fernet symmetric encryption:
+
+```python
+from cryptography.fernet import Fernet
+
+# Passwords are automatically encrypted when stored
+company = CompanyCreate(
+    name="My Company",
+    bluestakes_username="myuser", 
+    bluestakes_password="mypass"  # This gets encrypted
+)
+```
+
+### Access Control
+
+- **Company credentials** are only accessible to:
+  - Users belonging to that company
+  - Users with admin role
+- **JWT authentication** required for sensitive operations
+- **Row Level Security** policies enforce data isolation
+
+## 📊 Usage Examples
+
+### Create a Company with Bluestakes Credentials
+
 ```bash
-curl -X POST "http://localhost:8000/users/" \
+curl -X POST "http://localhost:8000/companies/" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "john@example.com",
-    "name": "John Doe",
-    "age": 30,
-    "metadata": {"preferences": {"theme": "dark"}}
+    "name": "Construction Co",
+    "bluestakes_username": "company_user",
+    "bluestakes_password": "secure_password",
+    "address": "123 Main St",
+    "city": "Anytown",
+    "state": "CA",
+    "zip": "12345"
   }'
 ```
 
-#### Get User Profile (Authenticated)
+### Generate PDF using Stored Credentials
+
 ```bash
-curl -X GET "http://localhost:8000/users/profile/me" \
+# Using company stored credentials (recommended)
+curl "http://localhost:8000/pdf/generate?ticket=12345&company_id=1"
+
+# Using provided credentials
+curl "http://localhost:8000/pdf/generate?ticket=12345&username=user&password=pass"
+```
+
+### Get Current User Profile
+
+```bash
+curl -X GET "http://localhost:8000/profiles/me/profile" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-## 🔐 Authentication
+### List Profiles by Company
 
-### JWT Token Format
-
-Supabase JWTs contain:
-- `sub`: User ID
-- `email`: User email
-- `exp`: Expiration timestamp
-- `aud`: Audience (should be "authenticated")
-- `user_metadata`: Custom user data
-
-### Using Auth Dependencies
-
-```python
-from utils.auth import get_current_user_id, verify_jwt_token
-
-@router.get("/protected")
-async def protected_route(user_id: str = Depends(get_current_user_id)):
-    return {"message": f"Hello user {user_id}"}
-
-@router.get("/optional-auth")
-async def optional_auth_route(user_id: Optional[str] = Depends(get_current_user_optional)):
-    if user_id:
-        return {"message": f"Hello authenticated user {user_id}"}
-    return {"message": "Hello anonymous user"}
+```bash
+curl "http://localhost:8000/profiles/?company_id=1&limit=20"
 ```
 
-## 🛡️ Row Level Security (RLS)
+## 🛡️ Production Security
 
-The users table has these RLS policies:
+### Environment Variables
 
-1. **Users can view own profile**: Users can only see their own data
-2. **Users can update own profile**: Users can only update their own data
-3. **Service role full access**: Admin operations bypass RLS
-4. **Allow public user creation**: Anyone can create a user (optional)
-
-### Testing RLS
-
-When using JWT authentication, operations automatically respect RLS:
-
-```python
-# This will only return/update the authenticated user's data
-user_client = get_user_client(jwt_token)
-result = user_client.table("users").select("*").execute()
+**Required for Production:**
+```env
+ENCRYPTION_KEY=your-very-secure-32-character-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-key
+SUPABASE_JWT_SECRET=your-jwt-secret
 ```
 
-## 🚨 Error Handling
+### Best Practices
 
-### Common Errors
+1. **Set a strong encryption key** (32+ characters)
+2. **Use HTTPS** in production
+3. **Implement proper RLS policies** in Supabase
+4. **Monitor access** to credential endpoints
+5. **Rotate encryption keys** periodically
+6. **Use environment-specific configurations**
 
-1. **Missing Environment Variables**
-   ```
-   ValueError: Missing required environment variables
-   ```
-   **Solution**: Check your `.env` file
+## 🔧 Advanced Features
 
-2. **Invalid JWT Token**
-   ```
-   401 Unauthorized: Invalid token
-   ```
-   **Solution**: Verify token format and expiration
+### Bulk Operations
 
-3. **RLS Policy Violations**
-   ```
-   403 Forbidden: Row-level security policy violation
-   ```
-   **Solution**: Check RLS policies and user permissions
+The API supports:
+- Filtering profiles by company and role
+- Pagination on all list endpoints
+- Efficient joins with company data
 
-## 🧪 Testing
+### Integration Patterns
 
-### Test with Service Role (Admin)
+**PDF Generation Workflow:**
+1. User selects a company (with stored credentials)
+2. API automatically retrieves and decrypts credentials
+3. Generates PDF with Bluestakes data
+4. No need to enter credentials manually
+
+**Multi-tenant Architecture:**
+- Companies are isolated data containers
+- Users belong to companies
+- Projects are scoped to companies
+- Tickets are scoped to projects
+
+## 🆘 Troubleshooting
+
+### Encryption Issues
+
+```python
+# Test encryption/decryption
+from routes.companies import encrypt_password, decrypt_password
+
+encrypted = encrypt_password("test_password")
+decrypted = decrypt_password(encrypted)
+print(f"Encryption working: {decrypted == 'test_password'}")
+```
+
+### Database Connection
 
 ```python
 from config.supabase_client import supabase_service
 
-# This bypasses RLS - use for admin operations
-result = supabase_service.table("users").select("*").execute()
+# Test connection
+result = supabase_service.table("companies").select("count").execute()
+print(f"Companies count: {len(result.data)}")
 ```
-
-### Test with User Authentication
-
-```python
-from config.supabase_client import get_user_client
-
-# This respects RLS - use for user operations
-user_client = get_user_client("user_jwt_token")
-result = user_client.table("users").select("*").execute()
-```
-
-## 📊 Production Considerations
-
-### Security Best Practices
-
-1. **Never expose service role key** in client-side code
-2. **Use anon key for public operations** only
-3. **Implement proper RLS policies** for data protection
-4. **Validate JWT tokens** on protected routes
-5. **Use HTTPS** in production
-
-### Performance Tips
-
-1. **Use connection pooling** for high-traffic apps
-2. **Implement caching** for frequently accessed data
-3. **Add database indexes** for common queries
-4. **Monitor Supabase usage** and optimize queries
-
-### Environment-specific Configuration
-
-```python
-# config/supabase_client.py
-import os
-
-class SupabaseConfig:
-    def __init__(self):
-        self.environment = os.getenv("ENVIRONMENT", "development")
-        
-        if self.environment == "production":
-            # Production-specific settings
-            self.timeout = 30
-            self.retry_attempts = 3
-        else:
-            # Development settings
-            self.timeout = 10
-            self.retry_attempts = 1
-```
-
-## 🆘 Troubleshooting
-
-### Connection Issues
-- Verify Supabase URL and keys
-- Check network connectivity
-- Ensure Supabase project is active
 
 ### Authentication Issues
-- Verify JWT secret matches Supabase project
-- Check token expiration
-- Ensure proper Authorization header format
 
-### RLS Issues
-- Review RLS policies in Supabase Dashboard
-- Test with service role to bypass RLS temporarily
-- Check user authentication status
+- Verify JWT secret matches your Supabase project
+- Check user profile exists and has company assignment
+- Ensure proper Authorization header format: `Bearer <token>`
 
 ## 📚 Additional Resources
 
-- [Supabase Documentation](https://supabase.com/docs)
-- [supabase-py GitHub](https://github.com/supabase/supabase-py)
-- [FastAPI Documentation](https://fastapi.tiangolo.com)
-- [Row Level Security Guide](https://supabase.com/docs/guides/auth/row-level-security) 
+- [Supabase RLS Documentation](https://supabase.com/docs/guides/auth/row-level-security)
+- [FastAPI Security](https://fastapi.tiangolo.com/tutorial/security/)
+- [Cryptography Library](https://cryptography.io/en/latest/)
+- [Python-JOSE JWT](https://python-jose.readthedocs.io/) 

@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from routes.pdf_generator import router as pdf_router
-from routes.users import router as users_router
+from routes.profiles import router as profiles_router
+from routes.companies import router as companies_router
 
 app = FastAPI(title="Underground API", version="1.0.0")
 
@@ -16,11 +17,22 @@ app.add_middleware(
 
 # Include routers
 app.include_router(pdf_router)
-app.include_router(users_router)
+app.include_router(profiles_router)
+app.include_router(companies_router)
 
 @app.get("/")
 async def root():
-    return {"greeting": "Hello, World!", "message": "Welcome to FastAPI!"}
+    return {
+        "greeting": "Hello, World!", 
+        "message": "Welcome to Underground API!",
+        "available_endpoints": {
+            "docs": "/docs",
+            "health": "/health", 
+            "pdf_generation": "/pdf/generate",
+            "user_profiles": "/profiles/",
+            "companies": "/companies/"
+        }
+    }
 
 @app.get("/health")
 async def health_check():
