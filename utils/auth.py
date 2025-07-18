@@ -41,7 +41,8 @@ def is_public_endpoint(path: str) -> bool:
         "/health",
         "/docs",
         "/openapi.json",
-        "/redoc"
+        "/redoc",
+        "/debug/env"  # Allow debug endpoint for troubleshooting
     ]
     return path in public_paths
 
