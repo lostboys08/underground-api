@@ -1,8 +1,84 @@
 from typing import Optional
-from fastapi import HTTPException, Depends, Header
+from fastapi import HTTPException, Depends, Header, Request
 from config.supabase_client import get_user_client
+import os
 
-# FastAPI dependency functions
+# API Key Authentication
+async def get_api_key(x_api_key: Optional[str] = Header(None)) -> Optional[str]:
+    """Extract API key from X-API-Key header"""
+    return x_api_key
+
+async def verify_api_key(api_key: Optional[str] = Depends(get_api_key)) -> str:
+    """
+    FastAPI dependency to verify API key
+    Raises 401 if API key is missing or invalid
+    """
+    if not api_key:
+        raise HTTPException(
+            status_code=401, 
+            detail="Missing API key. Include X-API-Key header."
+        )
+    
+    expected_api_key = os.getenv("API_KEY")
+    if not expected_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Server configuration error: API key not configured"
+        )
+    
+    if api_key != expected_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key"
+        )
+    
+    return api_key
+
+def is_public_endpoint(path: str) -> bool:
+    """Check if an endpoint should be publicly accessible without API key"""
+    public_paths = [
+        "/",
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc"
+    ]
+    return path in public_paths
+
+async def check_api_key_middleware(request: Request) -> Optional[str]:
+    """
+    Middleware helper to check API key for protected endpoints
+    Returns None for public endpoints, API key for protected ones
+    """
+    # Allow public endpoints without API key
+    if is_public_endpoint(request.url.path):
+        return None
+    
+    # Extract API key from header
+    api_key = request.headers.get("x-api-key")
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing API key. Include X-API-Key header."
+        )
+    
+    # Verify API key
+    expected_api_key = os.getenv("API_KEY")
+    if not expected_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Server configuration error: API key not configured"
+        )
+    
+    if api_key != expected_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key"
+        )
+    
+    return api_key
+
+# FastAPI dependency functions (existing Supabase auth)
 async def get_auth_token(authorization: Optional[str] = Header(None)) -> Optional[str]:
     """Extract auth token from Authorization header"""
     if not authorization:

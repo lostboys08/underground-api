@@ -265,57 +265,26 @@ async def fetch_bluestakes_data(token: str, ticket: str, revision: Optional[str]
 @router.get("/generate")
 async def generate_pdf(
     ticket: str = Query(..., description="Ticket number for which to get details (required)"),
+    username: str = Query(..., description="Bluestakes username (required)"),
+    password: str = Query(..., description="Bluestakes password (required)"),
     text: str = Query(default="Ticket Report", description="Custom title text to display in the PDF"),
-    company_id: Optional[int] = Query(default=None, description="Company ID to use stored Bluestakes credentials"),
-    username: Optional[str] = Query(default=None, description="Bluestakes username (required if not using company_id)"),
-    password: Optional[str] = Query(default=None, description="Bluestakes password (required if not using company_id)"),
     revision: Optional[str] = Query(default=None, description="Specific revision for the ticket, gets latest if omitted"),
     phone: Optional[str] = Query(default=None, description="Phone number associated with the ticket (required for anonymous users)"),
     all_prior_revs: bool = Query(default=False, description="Return responses for prior ticket revisions")
 ):
     """
     Generate a PDF with custom text and Bluestakes API ticket data
-    Can use either stored company credentials or provided username/password
+    Requires direct username and password credentials
     """
-    # Determine which credentials to use
+    # Use the provided credentials directly
     bluestakes_username = username
     bluestakes_password = password
-    
-    if company_id:
-        try:
-            # Get stored credentials from company
-            from config.supabase_client import get_service_client
-            from utils.encryption import decrypt_password
-            
-            company_result = (get_service_client().table("companies")
-                             .select("bluestakes_username, bluestakes_password_encrypted")
-                             .eq("id", company_id)
-                             .execute())
-            
-            if company_result.data:
-                company = company_result.data[0]
-                bluestakes_username = company.get("bluestakes_username")
-                if company.get("bluestakes_password_encrypted"):
-                    bluestakes_password = decrypt_password(company["bluestakes_password_encrypted"])
-                
-                if not bluestakes_username or not bluestakes_password:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"Company {company_id} does not have complete Bluestakes credentials stored"
-                    )
-            else:
-                raise HTTPException(status_code=404, detail=f"Company {company_id} not found")
-                
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise
-            raise HTTPException(status_code=500, detail=f"Error retrieving company credentials: {str(e)}")
     
     # Validate that we have credentials
     if not bluestakes_username or not bluestakes_password:
         raise HTTPException(
             status_code=400, 
-            detail="Either provide company_id with stored credentials or username/password parameters"
+            detail="Username and password are required"
         )
     
     # Create a buffer to store the PDF
@@ -329,7 +298,7 @@ async def generate_pdf(
     
     bluestakes_data = None
     error_message = None
-    credentials_source = "Company stored credentials" if company_id else "Provided credentials"
+    credentials_source = "Provided credentials"
     
     # Try to fetch data from Bluestakes API
     try:
@@ -359,9 +328,7 @@ async def generate_pdf(
     p.setFont("Helvetica", 12)
     p.drawString(50, y_position, f"Credentials: {credentials_source}")
     
-    if company_id:
-        y_position -= 20
-        p.drawString(50, y_position, f"Company ID: {company_id}")
+    # Removed company ID section as we're using direct credentials
     
     if revision:
         y_position -= 20

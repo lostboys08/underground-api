@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import os
 import logging
+from utils.auth import check_api_key_middleware
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +19,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# API Key Authentication Middleware
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    """Middleware to check API key for protected endpoints"""
+    try:
+        # Check API key for protected endpoints
+        await check_api_key_middleware(request)
+        
+        # If we get here, the request is either public or has valid API key
+        response = await call_next(request)
+        return response
+        
+    except HTTPException as e:
+        # Return proper error response for authentication failures
+        return JSONResponse(
+            status_code=e.status_code,
+            content={
+                "error": e.detail,
+                "status_code": e.status_code,
+                "path": str(request.url.path)
+            }
+        )
+    except Exception as e:
+        # Handle unexpected errors in middleware
+        logger.error(f"Middleware error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Internal server error",
+                "status_code": 500,
+                "path": str(request.url.path)
+            }
+        )
 
 # Include routers with error handling
 routers_loaded = []
@@ -58,6 +94,11 @@ async def root():
             "pdf_generation": "/pdf/generate" if "PDF Generator" in routers_loaded else "unavailable",
             "user_profiles": "/profiles/" if "User Profiles" in routers_loaded else "unavailable",
             "companies": "/companies/" if "Companies" in routers_loaded else "unavailable"
+        },
+        "authentication": {
+            "type": "API Key",
+            "header": "X-API-Key",
+            "note": "All endpoints except /, /health, and /docs require API key"
         }
     }
 
@@ -68,6 +109,7 @@ async def health_check():
         "status": "healthy", 
         "service": "underground-api",
         "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local",
+        "api_key_configured": bool(os.getenv("API_KEY")),
         "supabase_configured": False,
         "supabase_connected": False
     }
@@ -200,6 +242,39 @@ async def debug_supabase():
         debug_info["error_type"] = type(e).__name__
     
     return debug_info
+
+@app.get("/debug/companies")
+async def debug_companies():
+    """Check what companies exist in the database"""
+    try:
+        from config.supabase_client import get_service_client
+        
+        # Get all companies with password info (but don't show the actual encrypted password)
+        result = get_service_client().table("companies").select("id, name, bluestakes_username, bluestakes_password_encrypted").execute()
+        
+        # Format the response to show if password exists without exposing it
+        companies_info = []
+        for company in result.data if result.data else []:
+            company_info = {
+                "id": company.get("id"),
+                "name": company.get("name"),
+                "bluestakes_username": company.get("bluestakes_username"),
+                "has_encrypted_password": bool(company.get("bluestakes_password_encrypted"))
+            }
+            companies_info.append(company_info)
+        
+        return {
+            "companies_found": len(companies_info),
+            "companies": companies_info[:5],  # Show first 5
+            "query_successful": True
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "query_successful": False
+        }
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
