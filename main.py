@@ -90,11 +90,55 @@ async def health_check():
     
     return health_status
 
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment configuration (Railway only)"""
+    if not os.getenv("RAILWAY_ENVIRONMENT"):
+        raise HTTPException(status_code=404, detail="Debug endpoint only available in Railway")
+    
+    env_status = {
+        "railway_env": os.getenv("RAILWAY_ENVIRONMENT"),
+        "has_supabase_url": bool(os.getenv("SUPABASE_URL")),
+        "has_service_role_key": bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY")),
+        "has_anon_key": bool(os.getenv("SUPABASE_ANON_KEY")),
+        "has_jwt_secret": bool(os.getenv("SUPABASE_JWT_SECRET")),
+        "has_encryption_key": bool(os.getenv("ENCRYPTION_KEY")),
+        "supabase_url_preview": os.getenv("SUPABASE_URL", "")[:30] + "..." if os.getenv("SUPABASE_URL") else None
+    }
+    
+    return env_status
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Custom exception handler for better error responses"""
-    return {
-        "error": exc.detail,
-        "status_code": exc.status_code,
-        "path": str(request.url)
-    }
+    from fastapi.responses import JSONResponse
+    
+    # Log the error for debugging
+    logger.error(f"HTTPException at {request.url}: {exc.status_code} - {exc.detail}")
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "path": str(request.url)
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle unexpected exceptions"""
+    from fastapi.responses import JSONResponse
+    
+    # Log the full error for debugging
+    logger.error(f"Unhandled exception at {request.url}: {type(exc).__name__}: {str(exc)}", exc_info=True)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "status_code": 500,
+            "path": str(request.url),
+            "type": type(exc).__name__
+        }
+    )
