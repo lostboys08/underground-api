@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import httpx
 import asyncio
 from config.supabase_client import get_service_client
-from utils.auth import get_current_user_id
+
 from utils.encryption import decrypt_password
 import logging
 
@@ -226,7 +226,7 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
 @router.post("/search", response_model=List[ProjectTicketResponse])
 async def search_and_insert_bluestakes_tickets(
     search_request: BlueStakesSearchRequest,
-    current_user_id: str = Depends(get_current_user_id)
+    user_id: str = Query(..., description="User UUID for authentication")
 ):
     """
     Search BlueStakes tickets and insert them into the project_tickets table
@@ -269,11 +269,8 @@ async def search_and_insert_bluestakes_tickets(
         # Prepare search parameters
         search_params = {
             "limit": search_request.limit or 10,
-            "sort": search_request.sort,
             "start": search_request.start,
-            "end": search_request.end,
-            "state": search_request.state,
-            "county": search_request.county
+            "end": search_request.end
         }
         
         # Search tickets from BlueStakes
