@@ -5,6 +5,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 import httpx
 import asyncio
+import os
 from config.supabase_client import get_service_client
 
 from utils.encryption import decrypt_password
@@ -14,6 +15,56 @@ router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
 # BlueStakes API configuration
 BLUESTAKES_BASE_URL = "https://newtiny-api.bluestakes.org/api"
+
+@router.get("/debug-decryption/{company_id}")
+async def debug_decryption(company_id: int):
+    """
+    Debug endpoint to test decryption without making API calls
+    """
+    try:
+        # Get company's BlueStakes credentials
+        company_result = (get_service_client().table("companies")
+                         .select("bluestakes_username, bluestakes_password_encrypted")
+                         .eq("id", company_id)
+                         .execute())
+        
+        if not company_result.data:
+            return {"error": f"Company {company_id} not found"}
+        
+        company = company_result.data[0]
+        username = company.get("bluestakes_username")
+        encrypted_password = company.get("bluestakes_password_encrypted")
+        
+        debug_info = {
+            "company_id": company_id,
+            "has_username": bool(username),
+            "username": username,
+            "has_encrypted_password": bool(encrypted_password),
+            "encrypted_password_type": type(encrypted_password).__name__ if encrypted_password else None,
+            "encrypted_password_length": len(encrypted_password) if encrypted_password else None,
+            "encryption_key_exists": bool(os.getenv("ENCRYPTION_KEY")),
+            "using_default_key": not bool(os.getenv("ENCRYPTION_KEY"))
+        }
+        
+        # Try to decrypt the password
+        if encrypted_password:
+            try:
+                decrypted_password = decrypt_password(encrypted_password)
+                debug_info["decryption_success"] = True
+                debug_info["decrypted_password_length"] = len(decrypted_password) if decrypted_password else 0
+                debug_info["decrypted_password_preview"] = decrypted_password[:10] + "..." if decrypted_password else None
+            except Exception as e:
+                debug_info["decryption_success"] = False
+                debug_info["decryption_error"] = str(e)
+                debug_info["decryption_error_type"] = type(e).__name__
+        
+        return debug_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
 # Pydantic models for request/response
 
