@@ -35,5 +35,11 @@ def decrypt_password(encrypted_password: bytes) -> Optional[str]:
     if not encrypted_password:
         return None
     
-    fernet = Fernet(get_encryption_key())
-    return fernet.decrypt(encrypted_password).decode() 
+    try:
+        fernet = Fernet(get_encryption_key())
+        return fernet.decrypt(encrypted_password).decode()
+    except Exception as e:
+        logging.error(f"Decryption failed: {str(e)}")
+        logging.error(f"Encryption key exists: {bool(os.getenv('ENCRYPTION_KEY'))}")
+        logging.error(f"Using default key: {not bool(os.getenv('ENCRYPTION_KEY'))}")
+        raise 
