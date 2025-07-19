@@ -49,6 +49,11 @@ async def debug_decryption(company_id: int):
         # Try to decrypt the password
         if encrypted_password:
             try:
+                # Check if it's already a string (might be stored as string instead of bytes)
+                if isinstance(encrypted_password, str):
+                    debug_info["note"] = "Encrypted password is stored as string, converting to bytes"
+                    encrypted_password = encrypted_password.encode()
+                
                 decrypted_password = decrypt_password(encrypted_password)
                 debug_info["decryption_success"] = True
                 debug_info["decrypted_password_length"] = len(decrypted_password) if decrypted_password else 0
@@ -57,6 +62,7 @@ async def debug_decryption(company_id: int):
                 debug_info["decryption_success"] = False
                 debug_info["decryption_error"] = str(e)
                 debug_info["decryption_error_type"] = type(e).__name__
+                debug_info["encrypted_password_preview"] = str(encrypted_password)[:50] if encrypted_password else None
         
         return debug_info
         

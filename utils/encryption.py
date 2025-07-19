@@ -42,4 +42,7 @@ def decrypt_password(encrypted_password: bytes) -> Optional[str]:
         logging.error(f"Decryption failed: {str(e)}")
         logging.error(f"Encryption key exists: {bool(os.getenv('ENCRYPTION_KEY'))}")
         logging.error(f"Using default key: {not bool(os.getenv('ENCRYPTION_KEY'))}")
+        logging.error(f"Encrypted password type: {type(encrypted_password)}")
+        logging.error(f"Encrypted password length: {len(encrypted_password) if encrypted_password else 'None'}")
+        logging.error(f"Encrypted password preview: {str(encrypted_password)[:50] if encrypted_password else 'None'}")
         raise 
