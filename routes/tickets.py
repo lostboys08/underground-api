@@ -72,6 +72,35 @@ async def debug_decryption(company_id: int):
             "error_type": type(e).__name__
         }
 
+@router.post("/fix-encryption/{company_id}")
+async def fix_company_encryption(company_id: int, new_password: str):
+    """
+    Fix encryption by re-encrypting the password with the current key
+    """
+    try:
+        from utils.encryption import encrypt_password
+        
+        # Update the company with the new encrypted password
+        result = (get_service_client().table("companies")
+                 .update({"bluestakes_password_encrypted": encrypt_password(new_password)})
+                 .eq("id", company_id)
+                 .execute())
+        
+        if not result.data:
+            return {"error": f"Company {company_id} not found"}
+        
+        return {
+            "success": True,
+            "message": f"Password for company {company_id} has been re-encrypted",
+            "company_id": company_id
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
 # Pydantic models for request/response
 
 class ProjectTicketCreate(BaseModel):
@@ -280,13 +309,13 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
 
 
 
-@router.post("/search", response_model=List[ProjectTicketResponse])
-async def search_and_insert_bluestakes_tickets(
+@router.post("/sync", response_model=List[ProjectTicketResponse])
+async def sync_bluestakes_tickets(
     search_request: BlueStakesSearchRequest,
     user_id: str = Query(..., description="User UUID for authentication")
 ):
     """
-    Search BlueStakes tickets and insert them into the project_tickets table
+    Sync BlueStakes tickets and insert them into the project_tickets table
     Gets company BlueStakes credentials and fetches first 10 tickets by default
     """
     try:
