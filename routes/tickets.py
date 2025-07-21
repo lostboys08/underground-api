@@ -55,10 +55,15 @@ async def debug_decryption(company_id: int):
                     try:
                         # Check if it's a string representation of bytes (like "b'\\x716b6d3232362a'")
                         if encrypted_password.startswith("b'") and encrypted_password.endswith("'"):
-                            debug_info["note"] = "Encrypted password is string representation of bytes, converting"
+                            debug_info["note"] = "Password is hex-encoded, decoding directly"
                             # Remove the b'' wrapper and decode the hex
                             hex_string = encrypted_password[2:-1].replace('\\x', '')
-                            encrypted_password = bytes.fromhex(hex_string)
+                            # This is actually the plain password, not encrypted
+                            decrypted_password = bytes.fromhex(hex_string).decode()
+                            debug_info["decryption_success"] = True
+                            debug_info["decrypted_password_length"] = len(decrypted_password)
+                            debug_info["decrypted_password_preview"] = decrypted_password[:10] + "..." if len(decrypted_password) > 10 else decrypted_password
+                            return debug_info
                         else:
                             debug_info["note"] = "Encrypted password is stored as string, converting to bytes"
                             encrypted_password = encrypted_password.encode()
@@ -122,6 +127,59 @@ async def fix_company_encryption(company_id: int, new_password: str):
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+@router.post("/store-credentials/{company_id}")
+async def store_bluestakes_credentials(
+    company_id: int,
+    username: str = Query(..., description="BlueStakes username"),
+    password: str = Query(..., description="BlueStakes password")
+):
+    """
+    Store BlueStakes credentials for a company with proper encryption
+    """
+    try:
+        from utils.encryption import encrypt_password
+        
+        # Encrypt the password using our encryption utility
+        encrypted_password = encrypt_password(password)
+        
+        if not encrypted_password:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to encrypt password"
+            )
+        
+        # Update the company with the encrypted credentials
+        result = (get_service_client().table("companies")
+                 .update({
+                     "bluestakes_username": username,
+                     "bluestakes_password_encrypted": encrypted_password
+                 })
+                 .eq("id", company_id)
+                 .execute())
+        
+        if not result.data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Company {company_id} not found"
+            )
+        
+        return {
+            "success": True,
+            "message": f"BlueStakes credentials stored for company {company_id}",
+            "company_id": company_id,
+            "username": username,
+            "password_encrypted": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error storing credentials for company {company_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error storing credentials: {str(e)}"
+        )
 
 # Pydantic models for request/response
 
@@ -364,6 +422,7 @@ async def sync_bluestakes_tickets(
         
         # Decrypt the password
         try:
+            password_ready = False
             # Handle different storage formats
             if isinstance(encrypted_password, str):
                 # If it's a string, try to decode it as bytes
@@ -372,9 +431,13 @@ async def sync_bluestakes_tickets(
                     if encrypted_password.startswith("b'") and encrypted_password.endswith("'"):
                         # Remove the b'' wrapper and decode the hex
                         hex_string = encrypted_password[2:-1].replace('\\x', '')
-                        encrypted_password = bytes.fromhex(hex_string)
+                        # This is actually the plain password, not encrypted
+                        password = bytes.fromhex(hex_string).decode()
+                        # Skip the decryption step since this is already the plain password
+                        password_ready = True
                     else:
                         encrypted_password = encrypted_password.encode()
+                        password_ready = False
                 except Exception as e:
                     raise HTTPException(
                         status_code=500,
@@ -386,7 +449,8 @@ async def sync_bluestakes_tickets(
                     detail=f"Unsupported encrypted password format: {type(encrypted_password)}"
                 )
             
-            password = decrypt_password(encrypted_password)
+            if not password_ready:
+                password = decrypt_password(encrypted_password)
         except Exception as e:
             raise HTTPException(
                 status_code=500,
