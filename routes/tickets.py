@@ -11,39 +11,29 @@ from config.supabase_client import get_service_client
 from utils.encryption import decrypt_password
 import logging
 
-# Simple inline ticket update result class
-class TicketUpdateResult:
-    def __init__(self, success: bool, message: str, details: str = None):
-        self.success = success
-        self.message = message
-        self.details = details
-        self.updated_at = datetime.now()
-
-# Check if Playwright is available for ticket updating
+# Import ticket updater service with graceful error handling
 try:
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-    logging.info("Playwright is available for ticket updating")
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    logging.warning("Playwright not available - ticket update will be disabled")
-
-async def update_single_ticket_simple(username: str, password: str, ticket_number: str) -> TicketUpdateResult:
-    """Simplified ticket update function"""
-    if not PLAYWRIGHT_AVAILABLE:
+    from services.ticket_updater_service import update_single_ticket, TicketUpdateResult
+    TICKET_UPDATE_AVAILABLE = True
+    logging.info("Ticket update service loaded successfully")
+except ImportError as e:
+    logging.warning(f"Ticket update service unavailable: {e}")
+    TICKET_UPDATE_AVAILABLE = False
+    
+    # Create dummy classes and functions for graceful handling
+    class TicketUpdateResult:
+        def __init__(self, success: bool, message: str, details: str = None):
+            self.success = success
+            self.message = message
+            self.details = details
+            self.updated_at = datetime.now()
+    
+    async def update_single_ticket(username: str, password: str, ticket_number: str):
         return TicketUpdateResult(
             success=False,
-            message="Playwright not available",
-            details="Playwright is required for ticket updating but is not installed"
+            message="Ticket update service unavailable",
+            details=f"Service import failed: {e}"
         )
-    
-    # For now, return a placeholder response
-    # TODO: Implement the actual Playwright automation here
-    return TicketUpdateResult(
-        success=False,
-        message="Ticket update not yet implemented",
-        details=f"Would update ticket {ticket_number} with user {username}"
-    )
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -462,6 +452,16 @@ async def update_ticket(request: TicketUpdateRequest):
         TicketUpdateResponse with success status and details
     """
     try:
+        # Check if ticket update service is available
+        if not TICKET_UPDATE_AVAILABLE:
+            return TicketUpdateResponse(
+                success=False,
+                message="Ticket update service is currently unavailable",
+                ticket_number=request.ticket_number,
+                updated_at=datetime.now(),
+                details="The ticket update service failed to initialize on this deployment"
+            )
+        
         # Validate input
         if not request.username or not request.password or not request.ticket_number:
             raise HTTPException(
@@ -470,7 +470,7 @@ async def update_ticket(request: TicketUpdateRequest):
             )
         
         # Call the ticket updater service
-        result = await update_single_ticket_simple(
+        result = await update_single_ticket(
             username=request.username,
             password=request.password,
             ticket_number=request.ticket_number
