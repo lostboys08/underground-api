@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from config.supabase_client import get_service_client
 from utils.auth import get_current_user_id
-from utils.encryption import encrypt_password, decrypt_password
+
 import logging
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
@@ -43,7 +43,7 @@ class CompanyResponse(BaseModel):
     bluestakes_username: Optional[str]
     created_at: str
     updated_at: str
-    # Note: we don't expose the encrypted password in responses
+    # Note: we don't expose the password in responses
 
 class CompanyWithProjects(CompanyResponse):
     project_count: Optional[int] = None
@@ -66,9 +66,9 @@ async def create_company(company: CompanyCreate):
             "bluestakes_username": company.bluestakes_username
         }
         
-        # Encrypt password if provided
+        # Store password if provided
         if company.bluestakes_password:
-            insert_data["bluestakes_password_encrypted"] = encrypt_password(company.bluestakes_password)
+            insert_data["bluestakes_password"] = company.bluestakes_password
         
         result = get_service_client().table("companies").insert(insert_data).execute()
         
@@ -161,7 +161,7 @@ async def update_company(company_id: int, company_update: CompanyUpdate):
         if company_update.bluestakes_username is not None:
             update_data["bluestakes_username"] = company_update.bluestakes_username
         if company_update.bluestakes_password is not None:
-            update_data["bluestakes_password_encrypted"] = encrypt_password(company_update.bluestakes_password)
+            update_data["bluestakes_password"] = company_update.bluestakes_password
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
@@ -210,7 +210,7 @@ async def get_company_bluestakes_credentials(
 ):
     """
     Get Bluestakes credentials for a company (admin only)
-    Returns decrypted credentials for API usage
+    Returns credentials for API usage
     """
     try:
         # Check if user has access to this company
@@ -230,9 +230,9 @@ async def get_company_bluestakes_credentials(
         if user_company_id != company_id and user_role != "admin":
             raise HTTPException(status_code=403, detail="Access denied to company credentials")
         
-        # Get company with encrypted credentials
+        # Get company with credentials
         result = (get_service_client().table("companies")
-                 .select("bluestakes_username, bluestakes_password_encrypted")
+                 .select("bluestakes_username, bluestakes_password")
                  .eq("id", company_id)
                  .execute())
         
@@ -241,19 +241,10 @@ async def get_company_bluestakes_credentials(
         
         company = result.data[0]
         
-        # Decrypt password if it exists
-        decrypted_password = None
-        if company.get("bluestakes_password_encrypted"):
-            try:
-                decrypted_password = decrypt_password(company["bluestakes_password_encrypted"])
-            except Exception as e:
-                logging.error(f"Error decrypting password: {str(e)}")
-                raise HTTPException(status_code=500, detail="Error decrypting credentials")
-        
         return {
             "bluestakes_username": company.get("bluestakes_username"),
-            "bluestakes_password": decrypted_password,
-            "has_credentials": bool(company.get("bluestakes_username") and company.get("bluestakes_password_encrypted"))
+            "bluestakes_password": company.get("bluestakes_password"),
+            "has_credentials": bool(company.get("bluestakes_username") and company.get("bluestakes_password"))
         }
         
     except HTTPException:

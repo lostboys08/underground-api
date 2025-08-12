@@ -8,7 +8,6 @@ import asyncio
 import os
 from config.supabase_client import get_service_client
 
-from utils.encryption import decrypt_password
 import logging
 
 # Import ticket updater service with graceful error handling
@@ -47,25 +46,14 @@ async def store_bluestakes_credentials(
     password: str = Query(..., description="BlueStakes password")
 ):
     """
-    Store BlueStakes credentials for a company with proper encryption
+    Store BlueStakes credentials for a company
     """
     try:
-        from utils.encryption import encrypt_password
-        
-        # Encrypt the password using our encryption utility
-        encrypted_password = encrypt_password(password)
-        
-        if not encrypted_password:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to encrypt password"
-            )
-        
-        # Update the company with the encrypted credentials
+        # Update the company with the credentials
         result = (get_service_client().table("companies")
                  .update({
                      "bluestakes_username": username,
-                     "bluestakes_password_encrypted": encrypted_password
+                     "bluestakes_password": password
                  })
                  .eq("id", company_id)
                  .execute())
@@ -80,8 +68,7 @@ async def store_bluestakes_credentials(
             "success": True,
             "message": f"BlueStakes credentials stored for company {company_id}",
             "company_id": company_id,
-            "username": username,
-            "password_encrypted": True
+            "username": username
         }
         
     except HTTPException:
@@ -327,7 +314,7 @@ async def sync_bluestakes_tickets(
         
         # Get company's BlueStakes credentials
         company_result = (get_service_client().table("companies")
-                         .select("bluestakes_username, bluestakes_password_encrypted")
+                         .select("bluestakes_username, bluestakes_password")
                          .eq("id", company_id)
                          .execute())
         
@@ -336,49 +323,12 @@ async def sync_bluestakes_tickets(
         
         company = company_result.data[0]
         username = company.get("bluestakes_username")
-        encrypted_password = company.get("bluestakes_password_encrypted")
+        password = company.get("bluestakes_password")
         
-        if not username or not encrypted_password:
+        if not username or not password:
             raise HTTPException(
                 status_code=400, 
                 detail="Company does not have BlueStakes credentials configured"
-            )
-        
-        # Decrypt the password
-        try:
-            password_ready = False
-            # Handle different storage formats
-            if isinstance(encrypted_password, str):
-                # If it's a string, try to decode it as bytes
-                try:
-                    # Check if it's a string representation of bytes (like "b'\\x716b6d3232362a'")
-                    if encrypted_password.startswith("b'") and encrypted_password.endswith("'"):
-                        # Remove the b'' wrapper and decode the hex
-                        hex_string = encrypted_password[2:-1].replace('\\x', '')
-                        # This is actually the plain password, not encrypted
-                        password = bytes.fromhex(hex_string).decode()
-                        # Skip the decryption step since this is already the plain password
-                        password_ready = True
-                    else:
-                        encrypted_password = encrypted_password.encode()
-                        password_ready = False
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Error converting encrypted password to bytes: {str(e)}"
-                    )
-            elif not isinstance(encrypted_password, bytes):
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Unsupported encrypted password format: {type(encrypted_password)}"
-                )
-            
-            if not password_ready:
-                password = decrypt_password(encrypted_password)
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error decrypting BlueStakes credentials: {str(e)}"
             )
         
         # Get BlueStakes auth token

@@ -153,7 +153,7 @@ async def debug_env():
         "has_service_role_key": bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY")),
         "has_anon_key": bool(os.getenv("SUPABASE_ANON_KEY")),
         "has_jwt_secret": bool(os.getenv("SUPABASE_JWT_SECRET")),
-        "has_encryption_key": bool(os.getenv("ENCRYPTION_KEY")),
+
         "supabase_url_preview": os.getenv("SUPABASE_URL", "")[:30] + "..." if os.getenv("SUPABASE_URL") else None
     }
     
@@ -258,8 +258,8 @@ async def debug_companies():
     try:
         from config.supabase_client import get_service_client
         
-        # Get all companies with password info (but don't show the actual encrypted password)
-        result = get_service_client().table("companies").select("id, name, bluestakes_username, bluestakes_password_encrypted").execute()
+        # Get all companies with password info (but don't show the actual password)
+        result = get_service_client().table("companies").select("id, name, bluestakes_username, bluestakes_password").execute()
         
         # Format the response to show if password exists without exposing it
         companies_info = []
@@ -268,7 +268,7 @@ async def debug_companies():
                 "id": company.get("id"),
                 "name": company.get("name"),
                 "bluestakes_username": company.get("bluestakes_username"),
-                "has_encrypted_password": bool(company.get("bluestakes_password_encrypted"))
+                "has_password": bool(company.get("bluestakes_password"))
             }
             companies_info.append(company_info)
         
