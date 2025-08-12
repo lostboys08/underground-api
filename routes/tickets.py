@@ -10,123 +10,12 @@ from config.supabase_client import get_service_client
 
 from utils.encryption import decrypt_password
 import logging
+from services.ticket_updater_service import update_single_ticket
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
 # BlueStakes API configuration
 BLUESTAKES_BASE_URL = "https://newtiny-api.bluestakes.org/api"
-
-@router.get("/debug-decryption/{company_id}")
-async def debug_decryption(company_id: int):
-    """
-    Debug endpoint to test decryption without making API calls
-    """
-    try:
-        # Get company's BlueStakes credentials
-        company_result = (get_service_client().table("companies")
-                         .select("bluestakes_username, bluestakes_password_encrypted")
-                         .eq("id", company_id)
-                         .execute())
-        
-        if not company_result.data:
-            return {"error": f"Company {company_id} not found"}
-        
-        company = company_result.data[0]
-        username = company.get("bluestakes_username")
-        encrypted_password = company.get("bluestakes_password_encrypted")
-        
-        debug_info = {
-            "company_id": company_id,
-            "has_username": bool(username),
-            "username": username,
-            "has_encrypted_password": bool(encrypted_password),
-            "encrypted_password_type": type(encrypted_password).__name__ if encrypted_password else None,
-            "encrypted_password_length": len(encrypted_password) if encrypted_password else None,
-            "encryption_key_exists": bool(os.getenv("ENCRYPTION_KEY")),
-            "using_default_key": not bool(os.getenv("ENCRYPTION_KEY"))
-        }
-        
-        # Try to decrypt the password
-        if encrypted_password:
-            try:
-                # Handle different storage formats
-                if isinstance(encrypted_password, str):
-                    # If it's a string, try to decode it as bytes
-                    try:
-                        # Check if it's a string representation of bytes (like "b'\\x716b6d3232362a'")
-                        if encrypted_password.startswith("b'") and encrypted_password.endswith("'"):
-                            debug_info["note"] = "Password is hex-encoded, decoding directly"
-                            # Remove the b'' wrapper and decode the hex
-                            hex_string = encrypted_password[2:-1].replace('\\x', '')
-                            # This is actually the plain password, not encrypted
-                            decrypted_password = bytes.fromhex(hex_string).decode()
-                            debug_info["decryption_success"] = True
-                            debug_info["decrypted_password_length"] = len(decrypted_password)
-                            debug_info["decrypted_password_preview"] = decrypted_password[:10] + "..." if len(decrypted_password) > 10 else decrypted_password
-                            return debug_info
-                        else:
-                            debug_info["note"] = "Encrypted password is stored as string, converting to bytes"
-                            encrypted_password = encrypted_password.encode()
-                    except Exception as e:
-                        debug_info["note"] = f"Failed to convert string to bytes: {str(e)}"
-                        encrypted_password = None
-                elif isinstance(encrypted_password, bytes):
-                    debug_info["note"] = "Encrypted password is already in bytes format"
-                else:
-                    debug_info["note"] = f"Unknown format: {type(encrypted_password)}"
-                    encrypted_password = None
-                
-                if encrypted_password:
-                    decrypted_password = decrypt_password(encrypted_password)
-                    debug_info["decryption_success"] = True
-                    debug_info["decrypted_password_length"] = len(decrypted_password) if decrypted_password else 0
-                    debug_info["decrypted_password_preview"] = decrypted_password[:10] + "..." if decrypted_password else None
-                else:
-                    debug_info["decryption_success"] = False
-                    debug_info["decryption_error"] = "Could not process encrypted password format"
-                    debug_info["decryption_error_type"] = "FormatError"
-            except Exception as e:
-                debug_info["decryption_success"] = False
-                debug_info["decryption_error"] = str(e)
-                debug_info["decryption_error_type"] = type(e).__name__
-                debug_info["encrypted_password_preview"] = str(encrypted_password)[:50] if encrypted_password else None
-        
-        return debug_info
-        
-    except Exception as e:
-        return {
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
-
-@router.post("/fix-encryption/{company_id}")
-async def fix_company_encryption(company_id: int, new_password: str):
-    """
-    Fix encryption by re-encrypting the password with the current key
-    """
-    try:
-        from utils.encryption import encrypt_password
-        
-        # Update the company with the new encrypted password
-        result = (get_service_client().table("companies")
-                 .update({"bluestakes_password_encrypted": encrypt_password(new_password)})
-                 .eq("id", company_id)
-                 .execute())
-        
-        if not result.data:
-            return {"error": f"Company {company_id} not found"}
-        
-        return {
-            "success": True,
-            "message": f"Password for company {company_id} has been re-encrypted",
-            "company_id": company_id
-        }
-        
-    except Exception as e:
-        return {
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
 
 @router.post("/store-credentials/{company_id}")
 async def store_bluestakes_credentials(
@@ -182,6 +71,18 @@ async def store_bluestakes_credentials(
         )
 
 # Pydantic models for request/response
+
+class TicketUpdateRequest(BaseModel):
+    username: str
+    password: str
+    ticket_number: str
+
+class TicketUpdateResponse(BaseModel):
+    success: bool
+    message: str
+    ticket_number: str
+    updated_at: datetime
+    details: Optional[str] = None
 
 class ProjectTicketCreate(BaseModel):
     project_id: Optional[int] = None
@@ -514,4 +415,49 @@ async def sync_bluestakes_tickets(
         raise
     except Exception as e:
         logging.error(f"Error in search_and_insert_bluestakes_tickets: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/update", response_model=TicketUpdateResponse)
+async def update_ticket(request: TicketUpdateRequest):
+    """
+    Update a single BlueStakes ticket using browser automation.
+    
+    Args:
+        request: TicketUpdateRequest containing username, password, and ticket_number
+        
+    Returns:
+        TicketUpdateResponse with success status and details
+    """
+    try:
+        # Validate input
+        if not request.username or not request.password or not request.ticket_number:
+            raise HTTPException(
+                status_code=400,
+                detail="Username, password, and ticket_number are all required"
+            )
+        
+        # Call the ticket updater service
+        result = await update_single_ticket(
+            username=request.username,
+            password=request.password,
+            ticket_number=request.ticket_number
+        )
+        
+        # Return the response
+        return TicketUpdateResponse(
+            success=result.success,
+            message=result.message,
+            ticket_number=request.ticket_number,
+            updated_at=result.updated_at,
+            details=result.details
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error updating ticket {request.ticket_number}: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        ) 
