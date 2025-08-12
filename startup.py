@@ -17,6 +17,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def install_playwright():
+    """Install Playwright browsers if needed"""
+    try:
+        logger.info("Checking Playwright installation...")
+        import subprocess
+        
+        # Try to import playwright
+        try:
+            from playwright.async_api import async_playwright
+            logger.info("✓ Playwright is installed")
+            
+            # Check if browsers are installed
+            result = subprocess.run(["playwright", "list"], capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info("✓ Playwright browsers are installed")
+                return True
+            else:
+                logger.info("Installing Playwright browsers...")
+                subprocess.run(["playwright", "install", "chromium"], check=True)
+                logger.info("✓ Playwright browsers installed successfully")
+                return True
+                
+        except ImportError:
+            logger.warning("⚠️  Playwright not installed - ticket update functionality will be disabled")
+            return False
+            
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to install Playwright: {e}")
+        logger.warning("   Ticket update functionality will be disabled")
+        return False
+
 def check_environment():
     """Check and log environment configuration"""
     logger.info("=" * 50)

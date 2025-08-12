@@ -8,9 +8,21 @@ logger = logging.getLogger(__name__)
 
 try:
     from playwright.async_api import async_playwright
+    PLAYWRIGHT_AVAILABLE = True
 except ImportError:
-    logger.error("Playwright is not installed. Please run: pip install playwright && playwright install")
-    raise ImportError("Playwright is required for ticket updating functionality")
+    logger.warning("Playwright is not installed. Ticket update functionality will be disabled.")
+    PLAYWRIGHT_AVAILABLE = False
+    
+    # Create a dummy async_playwright for graceful handling
+    class DummyPlaywright:
+        def __init__(self):
+            pass
+        def __aenter__(self):
+            raise ImportError("Playwright is not available")
+        def __aexit__(self, *args):
+            pass
+    
+    async_playwright = DummyPlaywright
 
 class TicketUpdateResult:
     def __init__(self, success: bool, message: str, details: Optional[str] = None):
@@ -31,6 +43,14 @@ async def update_single_ticket(username: str, password: str, ticket_number: str)
     Returns:
         TicketUpdateResult object with success status and details
     """
+    # Check if Playwright is available
+    if not PLAYWRIGHT_AVAILABLE:
+        return TicketUpdateResult(
+            success=False,
+            message="Ticket update service unavailable: Playwright is not installed",
+            details="Please install Playwright: pip install playwright && playwright install"
+        )
+    
     try:
         async with async_playwright() as playwright:
             # Launch browser in headless mode for production
