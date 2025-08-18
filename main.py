@@ -89,6 +89,14 @@ try:
 except Exception as e:
     logger.error(f"Failed to load Tickets router: {e}")
 
+try:
+    from routes.cron import cron_router
+    app.include_router(cron_router)
+    routers_loaded.append("Cron Jobs")
+    logger.info("Cron Jobs router loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load Cron Jobs router: {e}")
+
 @app.get("/")
 async def root():
     return {
@@ -102,7 +110,8 @@ async def root():
             "pdf_generation": "/pdf/generate" if "PDF Generator" in routers_loaded else "unavailable",
             "user_profiles": "/profiles/" if "User Profiles" in routers_loaded else "unavailable",
             "companies": "/companies/" if "Companies" in routers_loaded else "unavailable",
-            "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable"
+            "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable",
+            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable"
         },
         "authentication": {
             "type": "API Key",
