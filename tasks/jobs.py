@@ -8,11 +8,8 @@ from typing import Dict, Any, List
 import httpx
 from config.supabase_client import get_service_client
 
-# Import BlueStakes API functions from routes.tickets
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from routes.tickets import get_bluestakes_auth_token, search_bluestakes_tickets, transform_bluestakes_ticket_to_project_ticket
+# Import BlueStakes API functions from utils module to avoid circular imports
+from utils.bluestakes import get_bluestakes_auth_token, search_bluestakes_tickets, transform_bluestakes_ticket_to_project_ticket
 
 logger = logging.getLogger(__name__)
 
