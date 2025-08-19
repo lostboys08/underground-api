@@ -460,6 +460,7 @@ class SyncStatsResponse(BaseModel):
     companies_failed: int
     tickets_added: int
     tickets_skipped: int
+    tickets_linked: Optional[int] = 0
     errors: List[str]
 
 

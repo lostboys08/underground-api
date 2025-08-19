@@ -38,6 +38,7 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         "companies_failed": 0,
         "tickets_added": 0,
         "tickets_skipped": 0,
+        "tickets_linked": 0,
         "errors": []
     }
     
@@ -90,11 +91,21 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                 # Continue with next company
                 continue
         
+        # Step 4: Link orphaned tickets to projects based on old_ticket relationships
+        try:
+            linked_count = await link_orphaned_tickets_to_projects()
+            logger.info(f"Linked {linked_count} orphaned tickets to projects")
+            sync_stats["tickets_linked"] = linked_count
+        except Exception as e:
+            logger.error(f"Error linking orphaned tickets to projects: {str(e)}")
+            sync_stats["tickets_linked"] = 0
+
         logger.info(f"BlueStakes ticket sync completed. "
                    f"Companies: {sync_stats['companies_processed']} processed, "
                    f"{sync_stats['companies_failed']} failed. "
                    f"Tickets: {sync_stats['tickets_added']} added, "
-                   f"{sync_stats['tickets_skipped']} skipped.")
+                   f"{sync_stats['tickets_skipped']} skipped, "
+                   f"{sync_stats.get('tickets_linked', 0)} linked to projects.")
         
         return sync_stats
         
@@ -241,6 +252,86 @@ async def insert_project_ticket(project_ticket) -> bool:
         
     except Exception as e:
         logger.error(f"Error inserting project ticket: {str(e)}")
+        raise
+
+
+async def link_orphaned_tickets_to_projects() -> int:
+    """
+    Link tickets with project_id=null to projects based on old_ticket relationships.
+    
+    Logic:
+    1. Find all tickets where project_id is null and old_ticket is not null
+    2. For each such ticket, look up the old_ticket in the database
+    3. If the old_ticket exists and has a project_id, assign the new ticket to the same project
+    
+    Returns:
+        Number of tickets successfully linked to projects
+    """
+    try:
+        # Step 1: Get all orphaned tickets that have an old_ticket reference
+        orphaned_result = (get_service_client()
+                          .table("project_tickets")
+                          .select("id, ticket_number, old_ticket, company_id")
+                          .is_("project_id", "null")
+                          .not_.is_("old_ticket", "null")
+                          .neq("old_ticket", "")
+                          .execute())
+        
+        if not orphaned_result.data:
+            logger.info("No orphaned tickets with old_ticket references found")
+            return 0
+        
+        orphaned_tickets = orphaned_result.data
+        logger.info(f"Found {len(orphaned_tickets)} orphaned tickets with old_ticket references")
+        
+        linked_count = 0
+        
+        # Step 2: Process each orphaned ticket
+        for ticket in orphaned_tickets:
+            try:
+                ticket_id = ticket["id"]
+                old_ticket_number = ticket["old_ticket"]
+                company_id = ticket["company_id"]
+                
+                # Step 3: Look up the old ticket in the database
+                old_ticket_result = (get_service_client()
+                                   .table("project_tickets")
+                                   .select("project_id")
+                                   .eq("ticket_number", old_ticket_number)
+                                   .eq("company_id", company_id)  # Ensure same company
+                                   .not_.is_("project_id", "null")
+                                   .limit(1)
+                                   .execute())
+                
+                if old_ticket_result.data:
+                    project_id = old_ticket_result.data[0]["project_id"]
+                    
+                    # Step 4: Update the orphaned ticket with the project_id
+                    update_result = (get_service_client()
+                                   .table("project_tickets")
+                                   .update({"project_id": project_id})
+                                   .eq("id", ticket_id)
+                                   .execute())
+                    
+                    if update_result.data:
+                        linked_count += 1
+                        logger.debug(f"Linked ticket {ticket['ticket_number']} to project {project_id} "
+                                   f"based on old_ticket {old_ticket_number}")
+                    else:
+                        logger.warning(f"Failed to update ticket {ticket['ticket_number']} with project_id {project_id}")
+                else:
+                    logger.debug(f"No existing project found for old_ticket {old_ticket_number} "
+                               f"(ticket: {ticket['ticket_number']})")
+                    
+            except Exception as e:
+                logger.error(f"Error processing orphaned ticket {ticket.get('ticket_number', 'unknown')}: {str(e)}")
+                continue
+        
+        logger.info(f"Successfully linked {linked_count} orphaned tickets to projects")
+        return linked_count
+        
+    except Exception as e:
+        logger.error(f"Error in link_orphaned_tickets_to_projects: {str(e)}")
         raise
 
 
