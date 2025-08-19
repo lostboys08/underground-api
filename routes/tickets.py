@@ -466,8 +466,7 @@ class SyncStatsResponse(BaseModel):
 @router.post("/sync-job", response_model=SyncStatsResponse)
 async def sync_bluestakes_tickets_job(
     company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
-    days_back: int = Query(default=28, description="Number of days to look back for tickets"),
-    user_id: str = Query(..., description="User UUID for authentication")
+    days_back: int = Query(default=28, description="Number of days to look back for tickets")
 ):
     """
     Sync BlueStakes tickets using the background job function.
