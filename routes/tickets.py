@@ -25,6 +25,7 @@ try:
     JOB_SYNC_AVAILABLE = True
     logging.info("Job sync function loaded successfully")
 except ImportError as e:
+    import_error_msg = str(e)
     logging.warning(f"Job sync function unavailable: {e}")
     JOB_SYNC_AVAILABLE = False
     
@@ -40,7 +41,7 @@ except ImportError as e:
         return TicketUpdateResult(
             success=False,
             message="Ticket update service unavailable",
-            details=f"Service import failed: {e}"
+            details=f"Service import failed: {import_error_msg}"
         )
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
