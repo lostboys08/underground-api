@@ -174,11 +174,18 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
     # Step 2: Search for tickets
     bluestakes_response = await search_bluestakes_tickets(token, search_params)
     
+    # Debug logging to see what we got from BlueStakes API
+    logger.info(f"BlueStakes API response type: {type(bluestakes_response)}")
+    logger.info(f"BlueStakes API response: {bluestakes_response}")
+    
     # Step 3: Process tickets
     if isinstance(bluestakes_response, list):
-        for response_item in bluestakes_response:
+        logger.info(f"Processing list response with {len(bluestakes_response)} items")
+        for i, response_item in enumerate(bluestakes_response):
+            logger.info(f"Response item {i}: type={type(response_item)}, keys={list(response_item.keys()) if isinstance(response_item, dict) else 'N/A'}")
             if isinstance(response_item, dict) and "data" in response_item:
                 tickets_data = response_item.get("data", [])
+                logger.info(f"Found {len(tickets_data)} tickets in response item {i}")
                 
                 for ticket_data in tickets_data:
                     if isinstance(ticket_data, dict):
@@ -205,6 +212,44 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
                         except Exception as e:
                             logger.error(f"Error processing ticket {ticket_number}: {str(e)}")
                             continue
+    elif isinstance(bluestakes_response, dict):
+        logger.info("Processing dict response")
+        logger.info(f"Dict keys: {list(bluestakes_response.keys())}")
+        
+        # Handle direct dict response with tickets data
+        if "data" in bluestakes_response:
+            tickets_data = bluestakes_response.get("data", [])
+            logger.info(f"Found {len(tickets_data)} tickets in direct dict response")
+            
+            for ticket_data in tickets_data:
+                if isinstance(ticket_data, dict):
+                    ticket_number = ticket_data.get("ticket")
+                    
+                    if not ticket_number:
+                        logger.warning(f"Ticket missing ticket number, skipping: {ticket_data}")
+                        continue
+                    
+                    # Check if ticket already exists
+                    if await ticket_exists(ticket_number):
+                        company_stats["tickets_skipped"] += 1
+                        continue
+                    
+                    # Transform and insert ticket
+                    try:
+                        project_ticket = transform_bluestakes_ticket_to_project_ticket(
+                            ticket_data, company["id"]
+                        )
+                        
+                        await insert_project_ticket(project_ticket)
+                        company_stats["tickets_added"] += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing ticket {ticket_number}: {str(e)}")
+                        continue
+        else:
+            logger.warning(f"Dict response does not contain 'data' key. Available keys: {list(bluestakes_response.keys())}")
+    else:
+        logger.warning(f"Unexpected response type: {type(bluestakes_response)}")
     
     return company_stats
 
