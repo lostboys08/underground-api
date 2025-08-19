@@ -411,33 +411,75 @@ async def update_ticket(request: TicketUpdateRequest):
     Returns:
         TicketUpdateResponse with success status and details
     """
+    # Log incoming request details (without sensitive password)
+    logging.info(f"=== TICKET UPDATE REQUEST START ===")
+    logging.info(f"Ticket number: {request.ticket_number}")
+    logging.info(f"Username: {request.username}")
+    logging.info(f"Password provided: {'Yes' if request.password else 'No'}")
+    logging.info(f"Request timestamp: {datetime.now().isoformat()}")
+    
     try:
-        # Check if ticket update service is available
+        # Log service availability check
+        logging.info(f"Checking ticket update service availability...")
+        logging.info(f"TICKET_UPDATE_AVAILABLE: {TICKET_UPDATE_AVAILABLE}")
+        
         if not TICKET_UPDATE_AVAILABLE:
-            return TicketUpdateResponse(
+            logging.warning("Ticket update service is not available - returning failure response")
+            response = TicketUpdateResponse(
                 success=False,
                 message="Ticket update service is currently unavailable",
                 ticket_number=request.ticket_number,
                 updated_at=datetime.now(),
                 details="The ticket update service failed to initialize on this deployment"
             )
+            logging.info(f"Returning unavailable service response: {response.dict()}")
+            return response
         
-        # Validate input
-        if not request.username or not request.password or not request.ticket_number:
+        logging.info("Ticket update service is available - proceeding with validation")
+        
+        # Validate input with detailed logging
+        logging.info("Validating input parameters...")
+        validation_errors = []
+        if not request.username:
+            validation_errors.append("username is empty or None")
+        if not request.password:
+            validation_errors.append("password is empty or None")
+        if not request.ticket_number:
+            validation_errors.append("ticket_number is empty or None")
+            
+        if validation_errors:
+            error_detail = f"Validation failed: {', '.join(validation_errors)}"
+            logging.error(f"Input validation failed: {error_detail}")
             raise HTTPException(
                 status_code=400,
                 detail="Username, password, and ticket_number are all required"
             )
         
-        # Call the ticket updater service
+        logging.info("Input validation passed - calling ticket updater service")
+        
+        # Call the ticket updater service with detailed logging
+        logging.info(f"Calling update_single_ticket for ticket: {request.ticket_number}")
+        service_call_start = datetime.now()
+        
         result = await update_single_ticket(
             username=request.username,
             password=request.password,
             ticket_number=request.ticket_number
         )
         
-        # Return the response
-        return TicketUpdateResponse(
+        service_call_duration = (datetime.now() - service_call_start).total_seconds()
+        logging.info(f"update_single_ticket completed in {service_call_duration:.2f} seconds")
+        
+        # Log service result details
+        logging.info(f"Service result received:")
+        logging.info(f"  - Success: {result.success}")
+        logging.info(f"  - Message: {result.message}")
+        logging.info(f"  - Details: {result.details}")
+        logging.info(f"  - Updated at: {result.updated_at}")
+        
+        # Construct response with logging
+        logging.info("Constructing response object...")
+        response = TicketUpdateResponse(
             success=result.success,
             message=result.message,
             ticket_number=request.ticket_number,
@@ -445,11 +487,24 @@ async def update_ticket(request: TicketUpdateRequest):
             details=result.details
         )
         
-    except HTTPException:
+        # Log final response
+        logging.info(f"Final response constructed:")
+        logging.info(f"  - HTTP Status: 200")
+        logging.info(f"  - Response body: {response.dict()}")
+        logging.info(f"=== TICKET UPDATE REQUEST END ===")
+        
+        return response
+        
+    except HTTPException as http_exc:
+        logging.error(f"HTTPException caught: Status {http_exc.status_code}, Detail: {http_exc.detail}")
+        logging.info(f"=== TICKET UPDATE REQUEST END (HTTP ERROR) ===")
         raise
     except Exception as e:
         error_msg = f"Unexpected error updating ticket {request.ticket_number}: {str(e)}"
-        logging.error(error_msg)
+        logging.error(f"Unexpected exception: {error_msg}")
+        logging.error(f"Exception type: {type(e).__name__}")
+        logging.error(f"Exception args: {e.args}")
+        logging.info(f"=== TICKET UPDATE REQUEST END (EXCEPTION) ===")
         raise HTTPException(
             status_code=500,
             detail=error_msg
