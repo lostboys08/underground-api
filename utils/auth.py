@@ -44,7 +44,17 @@ def is_public_endpoint(path: str) -> bool:
         "/redoc",
         "/debug/env"  # Allow debug endpoint for troubleshooting
     ]
-    return path in public_paths
+    
+    # Cron endpoints use X-CRON-SECRET instead of API key
+    cron_paths = [
+        "/cron/daily-update",
+        "/cron/sync-bluestakes", 
+        "/cron/refresh-todo",
+        "/cron/send-emails",
+        "/cron/status"
+    ]
+    
+    return path in public_paths or path in cron_paths
 
 async def check_api_key_middleware(request: Request) -> Optional[str]:
     """
