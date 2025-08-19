@@ -18,6 +18,15 @@ try:
 except ImportError as e:
     logging.warning(f"Ticket update service unavailable: {e}")
     TICKET_UPDATE_AVAILABLE = False
+
+# Import job functions with graceful error handling
+try:
+    from tasks.jobs import sync_bluestakes_tickets as job_sync_bluestakes_tickets
+    JOB_SYNC_AVAILABLE = True
+    logging.info("Job sync function loaded successfully")
+except ImportError as e:
+    logging.warning(f"Job sync function unavailable: {e}")
+    JOB_SYNC_AVAILABLE = False
     
     # Create dummy classes and functions for graceful handling
     class TicketUpdateResult:
@@ -439,6 +448,64 @@ async def update_ticket(request: TicketUpdateRequest):
         raise
     except Exception as e:
         error_msg = f"Unexpected error updating ticket {request.ticket_number}: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+class SyncStatsResponse(BaseModel):
+    companies_processed: int
+    companies_failed: int
+    tickets_added: int
+    tickets_skipped: int
+    errors: List[str]
+
+
+@router.post("/sync-job", response_model=SyncStatsResponse)
+async def sync_bluestakes_tickets_job(
+    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
+    days_back: int = Query(default=28, description="Number of days to look back for tickets"),
+    user_id: str = Query(..., description="User UUID for authentication")
+):
+    """
+    Sync BlueStakes tickets using the background job function.
+    Can sync all companies or a specific company.
+    Uses 28-day lookback by default for new company onboarding.
+    """
+    try:
+        # Check if job sync function is available
+        if not JOB_SYNC_AVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail="Job sync function is currently unavailable"
+            )
+        
+        # Validate parameters
+        if days_back < 1 or days_back > 365:
+            raise HTTPException(
+                status_code=400,
+                detail="days_back must be between 1 and 365"
+            )
+        
+        # Call the job function
+        if company_id:
+            logging.info(f"Starting sync for company {company_id} (last {days_back} days)")
+        else:
+            logging.info(f"Starting sync for all companies (last {days_back} days)")
+        
+        sync_stats = await job_sync_bluestakes_tickets(
+            company_id=company_id,
+            days_back=days_back
+        )
+        
+        return SyncStatsResponse(**sync_stats)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Error in sync job: {str(e)}"
         logging.error(error_msg)
         raise HTTPException(
             status_code=500,
