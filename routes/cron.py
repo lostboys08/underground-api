@@ -57,7 +57,7 @@ async def daily_update(
     
     This endpoint should be called by a cron scheduler (like Railway's cron jobs)
     to perform daily synchronization of ticket data from BlueStakes.
-    Uses default 28-day lookback for comprehensive sync.
+    Uses 2-day lookback for daily sync operations.
     
     Headers:
         X-CRON-SECRET: Secret key for cron job authentication
@@ -71,7 +71,7 @@ async def daily_update(
     
     # Add the job to background tasks so we can respond immediately
     # Use default parameters: all companies, 2 days back
-    background_tasks.add_task(sync_bluestakes_tickets)
+    background_tasks.add_task(sync_bluestakes_tickets, None, 2)
     
     return {
         "status": "success",
@@ -219,7 +219,7 @@ async def cron_status(x_cron_secret: Optional[str] = Header(None)):
             {
                 "endpoint": "/cron/daily-update",
                 "method": "POST",
-                "description": "Sync BlueStakes tickets (default: all companies, 28 days)"
+                "description": "Sync BlueStakes tickets (default: all companies, 2 days)"
             },
             {
                 "endpoint": "/cron/sync-bluestakes",
