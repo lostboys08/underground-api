@@ -14,6 +14,40 @@ from utils.bluestakes import get_bluestakes_auth_token, search_bluestakes_ticket
 logger = logging.getLogger(__name__)
 
 
+async def send_webhook(webhook_url: str, data: Dict[str, Any]) -> bool:
+    """
+    Send webhook notification with data to specified URL.
+    
+    Args:
+        webhook_url: The webhook endpoint URL
+        data: Dictionary containing the data to send
+        
+    Returns:
+        bool: True if webhook was sent successfully, False otherwise
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                webhook_url,
+                json=data,
+                headers={"Content-Type": "application/json"}
+            )
+            
+            if response.status_code in [200, 201, 202]:
+                logger.info(f"Webhook sent successfully to {webhook_url}")
+                return True
+            else:
+                logger.warning(f"Webhook failed with status {response.status_code}: {response.text}")
+                return False
+                
+    except httpx.TimeoutException:
+        logger.error(f"Webhook timeout sending to {webhook_url}")
+        return False
+    except Exception as e:
+        logger.error(f"Error sending webhook to {webhook_url}: {str(e)}")
+        return False
+
+
 async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
     """
     Sync BlueStakes tickets for all companies with credentials or a specific company.
@@ -36,6 +70,7 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         "tickets_added": 0,
         "tickets_skipped": 0,
         "tickets_linked": 0,
+        "old_tickets_updated": 0,
         "errors": []
     }
     
@@ -90,25 +125,85 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         
         # Step 4: Link orphaned tickets to projects based on old_ticket relationships
         try:
-            linked_count = await link_orphaned_tickets_to_projects()
-            logger.info(f"Linked {linked_count} orphaned tickets to projects")
+            linking_results = await link_orphaned_tickets_to_projects()
+            linked_count = linking_results["linked"]
+            old_tickets_updated = linking_results["old_tickets_updated"]
+            logger.info(f"Linked {linked_count} orphaned tickets to projects and updated {old_tickets_updated} old tickets")
             sync_stats["tickets_linked"] = linked_count
+            sync_stats["old_tickets_updated"] = old_tickets_updated
         except Exception as e:
             logger.error(f"Error linking orphaned tickets to projects: {str(e)}")
             sync_stats["tickets_linked"] = 0
+            sync_stats["old_tickets_updated"] = 0
 
         logger.info(f"BlueStakes ticket sync completed. "
                    f"Companies: {sync_stats['companies_processed']} processed, "
                    f"{sync_stats['companies_failed']} failed. "
                    f"Tickets: {sync_stats['tickets_added']} added, "
                    f"{sync_stats['tickets_skipped']} skipped, "
-                   f"{sync_stats.get('tickets_linked', 0)} linked to projects.")
+                   f"{sync_stats.get('tickets_linked', 0)} linked to projects, "
+                   f"{sync_stats.get('old_tickets_updated', 0)} old tickets updated.")
+        
+        # Send webhook notification with results
+        webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
+        webhook_data = {
+            "job_type": "daily_bluestakes_sync",
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "completed",
+            "results": sync_stats,
+            "summary": {
+                "companies_processed": sync_stats['companies_processed'],
+                "companies_failed": sync_stats['companies_failed'],
+                "tickets_added": sync_stats['tickets_added'],
+                "tickets_skipped": sync_stats['tickets_skipped'],
+                "tickets_linked": sync_stats.get('tickets_linked', 0),
+                "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
+                "total_errors": len(sync_stats.get('errors', []))
+            }
+        }
+        
+        # Send webhook (don't fail the job if webhook fails)
+        try:
+            webhook_success = await send_webhook(webhook_url, webhook_data)
+            if webhook_success:
+                logger.info("Webhook notification sent successfully")
+            else:
+                logger.warning("Failed to send webhook notification")
+        except Exception as e:
+            logger.error(f"Error sending webhook notification: {str(e)}")
         
         return sync_stats
         
     except Exception as e:
         logger.error(f"Critical error in BlueStakes sync job: {str(e)}")
         sync_stats["errors"].append(f"Critical error: {str(e)}")
+        
+        # Send webhook notification for failed job
+        webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
+        webhook_data = {
+            "job_type": "daily_bluestakes_sync",
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "failed",
+            "error": str(e),
+            "results": sync_stats,
+            "summary": {
+                "companies_processed": sync_stats['companies_processed'],
+                "companies_failed": sync_stats['companies_failed'],
+                "tickets_added": sync_stats['tickets_added'],
+                "tickets_skipped": sync_stats['tickets_skipped'],
+                "tickets_linked": sync_stats.get('tickets_linked', 0),
+                "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
+                "total_errors": len(sync_stats.get('errors', []))
+            }
+        }
+        
+        # Send webhook (don't fail further if webhook fails)
+        try:
+            await send_webhook(webhook_url, webhook_data)
+            logger.info("Error webhook notification sent")
+        except Exception as webhook_error:
+            logger.error(f"Failed to send error webhook: {str(webhook_error)}")
+        
         raise
 
 
@@ -297,7 +392,7 @@ async def insert_project_ticket(project_ticket) -> bool:
         raise
 
 
-async def link_orphaned_tickets_to_projects() -> int:
+async def link_orphaned_tickets_to_projects() -> Dict[str, int]:
     """
     Link tickets with project_id=null to projects based on old_ticket relationships.
     
@@ -305,9 +400,10 @@ async def link_orphaned_tickets_to_projects() -> int:
     1. Find all tickets where project_id is null and old_ticket is not null
     2. For each such ticket, look up the old_ticket in the database
     3. If the old_ticket exists and has a project_id, assign the new ticket to the same project
+    4. Update the old ticket to set is_continue_update to FALSE
     
     Returns:
-        Number of tickets successfully linked to projects
+        Dict with counts of tickets linked and old tickets updated
     """
     try:
         # Step 1: Get all orphaned tickets that have an old_ticket reference
@@ -321,12 +417,13 @@ async def link_orphaned_tickets_to_projects() -> int:
         
         if not orphaned_result.data:
             logger.info("No orphaned tickets with old_ticket references found")
-            return 0
+            return {"linked": 0, "old_tickets_updated": 0}
         
         orphaned_tickets = orphaned_result.data
         logger.info(f"Found {len(orphaned_tickets)} orphaned tickets with old_ticket references")
         
         linked_count = 0
+        old_tickets_updated_count = 0
         
         # Step 2: Process each orphaned ticket
         for ticket in orphaned_tickets:
@@ -359,6 +456,13 @@ async def link_orphaned_tickets_to_projects() -> int:
                         linked_count += 1
                         logger.debug(f"Linked ticket {ticket['ticket_number']} to project {project_id} "
                                    f"based on old_ticket {old_ticket_number}")
+                        
+                        # Update the old ticket to set is_continue_update to FALSE
+                        try:
+                            if await update_old_ticket_continue_status(old_ticket_number, company_id):
+                                old_tickets_updated_count += 1
+                        except Exception as e:
+                            logger.error(f"Error updating old ticket {old_ticket_number} continue status: {str(e)}")
                     else:
                         logger.warning(f"Failed to update ticket {ticket['ticket_number']} with project_id {project_id}")
                 else:
@@ -369,11 +473,43 @@ async def link_orphaned_tickets_to_projects() -> int:
                 logger.error(f"Error processing orphaned ticket {ticket.get('ticket_number', 'unknown')}: {str(e)}")
                 continue
         
-        logger.info(f"Successfully linked {linked_count} orphaned tickets to projects")
-        return linked_count
+        logger.info(f"Successfully linked {linked_count} orphaned tickets to projects and updated {old_tickets_updated_count} old tickets")
+        return {"linked": linked_count, "old_tickets_updated": old_tickets_updated_count}
         
     except Exception as e:
         logger.error(f"Error in link_orphaned_tickets_to_projects: {str(e)}")
+        raise
+
+
+async def update_old_ticket_continue_status(old_ticket_number: str, company_id: int) -> bool:
+    """
+    Update the is_continue_update status to FALSE for an old ticket when a new ticket is linked to a project.
+    
+    Args:
+        old_ticket_number: The ticket number of the old ticket to update
+        company_id: The company ID to ensure we're updating the right ticket
+        
+    Returns:
+        bool: True if the update was successful, False otherwise
+    """
+    try:
+        # Update the old ticket to set is_continue_update to FALSE
+        update_result = (get_service_client()
+                        .table("project_tickets")
+                        .update({"is_continue_update": False})
+                        .eq("ticket_number", old_ticket_number)
+                        .eq("company_id", company_id)
+                        .execute())
+        
+        if update_result.data:
+            logger.debug(f"Updated old ticket {old_ticket_number} is_continue_update to FALSE")
+            return True
+        else:
+            logger.warning(f"No old ticket found to update: {old_ticket_number} for company {company_id}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error updating old ticket {old_ticket_number} continue status: {str(e)}")
         raise
 
 
