@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Query
 from typing import Optional
 import os
 import logging
-from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails
+from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails, sync_updateable_tickets
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +197,48 @@ async def send_emails(
     }
 
 
+@cron_router.post("/sync-updatable-tickets")
+async def sync_updatable_tickets_cron(
+    background_tasks: BackgroundTasks,
+    x_cron_secret: Optional[str] = Header(None),
+    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies")
+):
+    """
+    Sync updateable tickets job - queries database for tickets meeting criteria,
+    verifies them via BlueStakes API, and populates the updateable_tickets table.
+    
+    This endpoint should run on the same schedule as the daily update to maintain
+    the updateable tickets table with current verification status.
+    
+    Headers:
+        X-CRON-SECRET: Secret key for cron job authentication
+        
+    Query Parameters:
+        company_id: Optional company ID to sync (syncs all if not provided)
+        
+    Returns:
+        JSON response indicating the job was queued successfully
+    """
+    verify_cron_secret(x_cron_secret)
+    
+    if company_id:
+        logger.info(f"Updateable tickets sync cron job triggered for company {company_id}")
+    else:
+        logger.info("Updateable tickets sync cron job triggered for all companies")
+    
+    # Add the job to background tasks
+    background_tasks.add_task(sync_updateable_tickets, company_id)
+    
+    return {
+        "status": "success",
+        "message": "Updatable tickets sync job queued successfully",
+        "job": "sync_updatable_tickets",
+        "parameters": {
+            "company_id": company_id
+        }
+    }
+
+
 @cron_router.get("/status")
 async def cron_status(x_cron_secret: Optional[str] = Header(None)):
     """
@@ -236,6 +278,12 @@ async def cron_status(x_cron_secret: Optional[str] = Header(None)):
                 "endpoint": "/cron/send-emails",
                 "method": "POST",
                 "description": "Send ticket emails"
+            },
+            {
+                "endpoint": "/cron/sync-updatable-tickets",
+                "method": "POST",
+                "description": "Sync updateable tickets with BlueStakes verification",
+                "parameters": ["company_id"]
             }
         ],
         "authentication": {

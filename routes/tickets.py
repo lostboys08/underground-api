@@ -371,6 +371,23 @@ class SyncStatsResponse(BaseModel):
     tickets_linked: Optional[int] = 0
     errors: List[str]
 
+class UpdatableTicketCreate(BaseModel):
+    ticket_number: str
+
+class UpdatableTicketResponse(BaseModel):
+    id: int
+    ticket_number: str
+    created_at: datetime
+
+class UpdatableTicketsStatsResponse(BaseModel):
+    companies_processed: int
+    companies_failed: int
+    tickets_processed: int
+    tickets_checked: int
+    tickets_added: int
+    api_failures: int
+    errors: List[str]
+
 
 @router.post("/sync-job", response_model=SyncStatsResponse)
 async def sync_bluestakes_tickets_job(
@@ -414,6 +431,44 @@ async def sync_bluestakes_tickets_job(
         raise
     except Exception as e:
         error_msg = f"Error in sync job: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+@router.post("/sync-updatable-tickets", response_model=UpdatableTicketsStatsResponse)
+async def sync_updateable_tickets_job(
+    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies")
+):
+    """
+    Manually trigger updateable tickets sync job.
+    
+    This endpoint allows manual triggering of the updateable tickets sync process
+    for testing or on-demand synchronization.
+    
+    Query Parameters:
+        company_id: Optional company ID to sync (syncs all if not provided)
+        
+    Returns:
+        UpdateableTicketsStatsResponse with sync statistics
+    """
+    try:
+        # Import here to avoid circular imports
+        from tasks.jobs import sync_updateable_tickets as job_sync_updateable_tickets
+        
+        if company_id:
+            logging.info(f"Starting manual updateable tickets sync for company {company_id}")
+        else:
+            logging.info("Starting manual updateable tickets sync for all companies")
+        
+        sync_stats = await job_sync_updateable_tickets(company_id=company_id)
+        
+        return UpdatableTicketsStatsResponse(**sync_stats)
+        
+    except Exception as e:
+        error_msg = f"Error in updateable tickets sync job: {str(e)}"
         logging.error(error_msg)
         raise HTTPException(
             status_code=500,
