@@ -70,7 +70,7 @@ async def daily_update(
     logger.info("Daily update cron job triggered")
     
     # Add the job to background tasks so we can respond immediately
-    # Use default parameters: all companies, 28 days back
+    # Use default parameters: all companies, 2 days back
     background_tasks.add_task(sync_bluestakes_tickets)
     
     return {
