@@ -79,7 +79,7 @@ async def daily_update(
         "job": "sync_bluestakes_tickets",
         "parameters": {
             "company_id": None,
-            "days_back": 28
+            "days_back": 2
         }
     }
 
