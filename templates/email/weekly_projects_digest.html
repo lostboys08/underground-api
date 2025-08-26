@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <title>Weekly Projects & Tickets</title>
+    <meta name="x-preheader" content="{{preheader_text}}">
+    <style>
+      /* Basic email-safe resets */
+      body { margin: 0; padding: 0; background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+      img { border: 0; outline: none; text-decoration: none; display: block; }
+      table { border-collapse: collapse; }
+      a { color: #2563eb; text-decoration: none; }
+    </style>
+  </head>
+  <body style="margin:0; padding:0; background:#f6f7fb;">
+    <table role="presentation" width="100%" bgcolor="#f6f7fb">
+      <tr>
+        <td align="center" style="padding: 24px 12px;">
+          <table role="presentation" width="100%" style="max-width:600px; background:#ffffff; border-radius:8px; overflow:hidden;">
+            <tr>
+              <td style="padding: 20px 24px; background:#0f172a; color:#ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                <div style="font-size:14px; opacity:0.9;">{{company_name}}</div>
+                <div style="font-size:20px; font-weight:600; margin-top:4px;">Your Weekly Projects & Tickets Update</div>
+                <div style="font-size:12px; opacity:0.8; margin-top:6px;">Week of {{week_start}} – {{week_end}}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 20px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#0f172a;">
+                <p style="margin:0 0 12px 0; font-size:16px;">Hi {{recipient_name}},</p>
+                <p style="margin:0 0 16px 0; font-size:14px; line-height:1.5; color:#334155;">
+                  Here’s a quick look at your active projects and tickets for the week. We’ve grouped everything by project so you can focus on what matters most.
+                </p>
+                <div style="margin: 12px 0 16px 0; padding: 12px; background:#f1f5f9; border-radius:6px; font-size:13px; color:#0f172a;">
+                  <strong>Summary</strong>: {{total_projects}} project(s), {{total_tickets}} ticket(s)
+                </div>
+
+                <!-- PROJECTS_START: The section below will be repeated for each project. -->
+                <!-- PROJECT_BLOCK_START -->
+                <table role="presentation" width="100%" style="margin: 0 0 20px 0; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                  <tr>
+                    <td style="padding: 16px 16px 8px 16px;">
+                      <div style="font-size:16px; font-weight:600; color:#0f172a;">{{project_name}}</div>
+                      <div style="font-size:12px; color:#64748b;">Project ID: {{project_id}}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 0 16px 16px 16px;">
+                      <!-- Optional map image for the project -->
+                      <!-- Provide a hosted image URL for {{project_image_url}} -->
+                      <img src="{{project_image_url}}" alt="Project map for {{project_name}}" width="568" style="width:100%; max-width:568px; height:auto; border-radius:6px; background:#e2e8f0;">
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 0 16px 16px 16px;">
+                      <div style="font-size:14px; font-weight:600; color:#0f172a; margin-bottom:8px;">Tickets</div>
+                      <table role="presentation" width="100%" style="border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
+                        <!-- TICKETS_START: The row below will be repeated for each ticket. -->
+                        <!-- TICKET_ITEM_START -->
+                        <tr>
+                          <td style="padding: 10px 12px; font-size:13px; color:#0f172a; border-bottom:1px solid #e5e7eb;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                              <div>
+                                <div style="font-weight:600;">{{ticket_number}}</div>
+                                <div style="font-size:12px; color:#64748b;">Replace by: {{replace_by_date}} • Legal: {{legal_date}}</div>
+                              </div>
+                              <div style="font-size:12px; color:#64748b; text-align:right;">
+                                {{ticket_meta}}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                        <!-- TICKET_ITEM_END -->
+                        <!-- TICKETS_END -->
+                      </table>
+                      <div style="font-size:12px; color:#64748b; margin-top:8px;">Showing {{project_ticket_count}} ticket(s)</div>
+                    </td>
+                  </tr>
+                </table>
+                <!-- PROJECT_BLOCK_END -->
+                <!-- PROJECTS_END -->
+
+                <p style="margin: 16px 0 0 0; font-size:12px; color:#64748b;">You are receiving this summary because you’re listed on one or more active projects. To update your email preferences, visit {{preferences_url}}.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 16px 24px; background:#f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#64748b; font-size:12px;">
+                <div>{{company_name}} • {{company_address}}</div>
+                <div style="margin-top:4px;">
+                  <a href="{{unsubscribe_url}}" style="color:#64748b; text-decoration:underline;">Unsubscribe</a>
+                  ·
+                  <a href="{{support_url}}" style="color:#64748b; text-decoration:underline;">Support</a>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  <!--
+    Placeholder contract:
+      - {{company_name}}, {{company_address}}, {{support_url}}, {{unsubscribe_url}}, {{preferences_url}}
+      - {{recipient_name}}, {{week_start}}, {{week_end}}, {{preheader_text}}
+      - {{total_projects}}, {{total_tickets}}
+      - Repeatable project block between PROJECT_BLOCK_START/END with:
+          {{project_id}}, {{project_name}}, {{project_image_url}}, {{project_ticket_count}}
+      - Repeatable ticket row between TICKET_ITEM_START/END with:
+          {{ticket_number}}, {{replace_by_date}}, {{legal_date}}, {{ticket_meta}}
+
+    Rendering guidance:
+      - Duplicate the PROJECT_BLOCK for each project and fill tokens.
+      - Within each project, duplicate TICKET_ITEM rows and fill tokens.
+      - Remove any unused placeholders and collapse empty sections.
+  -->
+</html>
+
+
