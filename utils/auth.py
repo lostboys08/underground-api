@@ -51,6 +51,7 @@ def is_public_endpoint(path: str) -> bool:
         "/cron/sync-bluestakes", 
         "/cron/refresh-todo",
         "/cron/send-emails",
+        "/cron/send-notifications",
         "/cron/sync-updatable-tickets",
         "/cron/status"
     ]
