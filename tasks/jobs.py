@@ -751,3 +751,29 @@ async def send_ticket_emails():
     # 3. Send emails using email service (Resend, etc.)
     # 4. Log email delivery status
     logger.info("Ticket email sending job completed")
+
+
+async def send_notification_emails():
+    """
+    Basic notification email function for testing.
+    This will be extended later with actual email sending logic.
+    """
+    logger.info("Starting notification email sending job")
+    
+    # TODO: Implement actual email sending logic
+    # This would typically:
+    # 1. Query database for pending notifications
+    # 2. Generate email content based on notification type
+    # 3. Send emails using email service (Resend, etc.)
+    # 4. Update notification status in database
+    # 5. Log email delivery status
+    
+    # For now, just log that we're running
+    timestamp = datetime.utcnow().isoformat()
+    logger.info(f"Notification email job completed at {timestamp}")
+    
+    return {
+        "status": "completed",
+        "timestamp": timestamp,
+        "message": "Notification email job processed (placeholder implementation)"
+    }

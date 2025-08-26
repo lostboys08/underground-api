@@ -6,7 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Query
 from typing import Optional
 import os
 import logging
-from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails, sync_updateable_tickets
+from datetime import datetime
+from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails, sync_updateable_tickets, send_notification_emails
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,7 @@ async def sync_bluestakes_cron(
     Query Parameters:
         company_id: Optional company ID to sync (syncs all if not provided)
         days_back: Number of days to look back (1-365, default 28)
+       
         
     Returns:
         JSON response indicating the job was queued successfully
@@ -197,6 +199,37 @@ async def send_emails(
     }
 
 
+@cron_router.post("/send-notifications")
+async def send_notifications(
+    background_tasks: BackgroundTasks,
+    x_cron_secret: Optional[str] = Header(None)
+):
+    """
+    Send notification emails job.
+    
+    This endpoint should be called periodically to send general notification
+    emails (not just ticket-related ones).
+    
+    Headers:
+        X-CRON-SECRET: Secret key for cron job authentication
+        
+    Returns:
+        JSON response indicating the job was queued successfully
+    """
+    verify_cron_secret(x_cron_secret)
+    
+    logger.info("Send notifications cron job triggered")
+    
+    # Add the job to background tasks so we can respond immediately
+    background_tasks.add_task(send_notification_emails)
+    
+    return {
+        "status": "success",
+        "message": "Notification sending job queued successfully",
+        "job": "send_notification_emails"
+    }
+
+
 @cron_router.post("/sync-updatable-tickets")
 async def sync_updatable_tickets_cron(
     background_tasks: BackgroundTasks,
@@ -232,7 +265,7 @@ async def sync_updatable_tickets_cron(
     return {
         "status": "success",
         "message": "Updatable tickets sync job queued successfully",
-        "job": "sync_updatable_tickets",
+        "job": "sync_updateable_tickets",
         "parameters": {
             "company_id": company_id
         }
@@ -278,6 +311,11 @@ async def cron_status(x_cron_secret: Optional[str] = Header(None)):
                 "endpoint": "/cron/send-emails",
                 "method": "POST",
                 "description": "Send ticket emails"
+            },
+            {
+                "endpoint": "/cron/send-notifications",
+                "method": "POST",
+                "description": "Send general notification emails"
             },
             {
                 "endpoint": "/cron/sync-updatable-tickets",
