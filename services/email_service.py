@@ -35,8 +35,8 @@ class EmailService:
         EmailService._ensure_api_key()
         
         params: resend.Emails.SendParams = {
-            "from": "onboarding@resend.dev",
-            "to": ["delivered@resend.dev"],
+            "from": "onboarding@underground-iq.com",
+            "to": ["delivered@resend.dev", "kaim@kennyseng.com"],
             "subject": "Hello World",
             "html": "<strong>it works!</strong>",
         }
