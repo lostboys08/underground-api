@@ -97,6 +97,14 @@ try:
 except Exception as e:
     logger.error(f"Failed to load Cron Jobs router: {e}")
 
+try:
+    from routes.emails import router as emails_router
+    app.include_router(emails_router)
+    routers_loaded.append("Emails")
+    logger.info("Emails router loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load Emails router: {e}")
+
 @app.get("/")
 async def root():
     return { 
@@ -110,7 +118,8 @@ async def root():
             "user_profiles": "/profiles/" if "User Profiles" in routers_loaded else "unavailable",
             "companies": "/companies/" if "Companies" in routers_loaded else "unavailable",
             "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable",
-            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable"
+            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable",
+            "emails": "/emails/" if "Emails" in routers_loaded else "unavailable"
         },
         "authentication": {
             "type": "API Key",
