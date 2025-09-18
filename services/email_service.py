@@ -36,7 +36,7 @@ class EmailService:
         
         params: resend.Emails.SendParams = {
             "from": "UndergoundIQ@underground-iq.com",
-            "to": ["delivered@resend.dev", "kaim@kennyseng.com"],
+            "to": ["kaim@kennyseng.com"],
             "subject": "Hello World",
             "html": "<strong>it works!</strong>",
         }
