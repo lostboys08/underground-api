@@ -1211,27 +1211,11 @@ async def get_ticket_location_from_bluestakes(ticket_number: str) -> str:
             company_creds.data[0]["bluestakes_password"]
         )
         
-        # Search for the specific ticket
-        search_params = {
-            "limit": 1,
-            "ticket": ticket_number
-        }
+        # Get the specific ticket directly
+        from utils.bluestakes import get_ticket_details
+        ticket_data = await get_ticket_details(token, ticket_number)
         
-        bluestakes_response = await search_bluestakes_tickets(token, search_params)
-        
-        # Extract ticket data from response
-        ticket_data = None
-        if isinstance(bluestakes_response, dict) and "data" in bluestakes_response:
-            tickets = bluestakes_response["data"]
-            if tickets and len(tickets) > 0:
-                ticket_data = tickets[0]
-        elif isinstance(bluestakes_response, list) and len(bluestakes_response) > 0:
-            if "data" in bluestakes_response[0]:
-                tickets = bluestakes_response[0]["data"]
-                if tickets and len(tickets) > 0:
-                    ticket_data = tickets[0]
-        
-        if ticket_data:
+        if ticket_data and not ticket_data.get("error"):
             # Save to database for future use
             await save_bluestakes_ticket_data(ticket_number, ticket_data)
             return format_location_from_bluestakes(ticket_data)

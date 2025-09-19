@@ -134,6 +134,57 @@ async def search_bluestakes_tickets(token: str, search_params: Dict[str, Any]) -
         )
 
 
+async def get_ticket_details(token: str, ticket_number: str) -> Dict[str, Any]:
+    """
+    Get full ticket details for a specific ticket from BlueStakes API.
+    
+    Args:
+        token: BlueStakes authentication token
+        ticket_number: The ticket number to fetch
+        
+    Returns:
+        Dict containing the full ticket data
+    """
+    try:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                f"{BLUESTAKES_BASE_URL}/tickets/{ticket_number}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "accept": "application/json"
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+            
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="Request to BlueStakes API timed out"
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            # Ticket not found
+            return {
+                "ticket": ticket_number,
+                "error": "Ticket not found"
+            }
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"BlueStakes API ticket request failed: {e.response.text}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error connecting to BlueStakes API: {str(e)}"
+        )
+
+
 async def get_ticket_secondary_functions(token: str, ticket_number: str) -> Dict[str, Any]:
     """
     Get secondary functions (update availability) for a specific ticket from BlueStakes API.
