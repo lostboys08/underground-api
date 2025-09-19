@@ -1059,15 +1059,200 @@ async def send_weekly_project_digest():
         }
 
 
+async def save_bluestakes_ticket_data(ticket_number: str, bluestakes_data: Dict[str, Any]) -> None:
+    """
+    Save the full bluestakes ticket response to the database.
+    
+    Args:
+        ticket_number: The ticket number
+        bluestakes_data: The full response from bluestakes API
+    """
+    try:
+        # Check if ticket data already exists
+        existing = (get_service_client()
+                   .table("bluestakes_tickets")
+                   .select("ticket_number")
+                   .eq("ticket_number", ticket_number)
+                   .limit(1)
+                   .execute())
+        
+        if existing.data:
+            # Update existing record
+            (get_service_client()
+             .table("bluestakes_tickets")
+             .update({
+                 "ticket_data": bluestakes_data,
+                 "updated_at": datetime.utcnow().isoformat()
+             })
+             .eq("ticket_number", ticket_number)
+             .execute())
+        else:
+            # Insert new record
+            (get_service_client()
+             .table("bluestakes_tickets")
+             .insert({
+                 "ticket_number": ticket_number,
+                 "ticket_data": bluestakes_data,
+                 "created_at": datetime.utcnow().isoformat(),
+                 "updated_at": datetime.utcnow().isoformat()
+             })
+             .execute())
+        
+        logger.info(f"Saved bluestakes data for ticket {ticket_number}")
+        
+    except Exception as e:
+        logger.error(f"Error saving bluestakes data for ticket {ticket_number}: {str(e)}")
+
+
+def format_location_from_bluestakes(bluestakes_data: Dict[str, Any]) -> str:
+    """
+    Format location information from bluestakes ticket data.
+    
+    Args:
+        bluestakes_data: The bluestakes ticket data
+        
+    Returns:
+        Formatted location string
+    """
+    try:
+        street = bluestakes_data.get("street")
+        st_from_address = bluestakes_data.get("st_from_address")
+        st_to_address = bluestakes_data.get("st_to_address")
+        cross1 = bluestakes_data.get("cross1")
+        cross2 = bluestakes_data.get("cross2")
+        
+        if not street:
+            return "Location not available"
+        
+        location_parts = []
+        
+        # Handle street with from/to addresses
+        if st_from_address and st_to_address and st_from_address != 0 and st_to_address != 0:
+            if st_from_address == st_to_address:
+                location_parts.append(f"{st_from_address} {street}")
+            else:
+                location_parts.append(f"{st_from_address}-{st_to_address} {street}")
+        else:
+            location_parts.append(street)
+        
+        # Add cross streets if available
+        cross_streets = []
+        if cross1 and cross1 != 0:
+            cross_streets.append(cross1)
+        if cross2 and cross2 != 0:
+            cross_streets.append(cross2)
+        
+        if cross_streets:
+            if len(cross_streets) == 1:
+                location_parts.append(f"at {cross_streets[0]}")
+            else:
+                location_parts.append(f"between {cross_streets[0]} and {cross_streets[1]}")
+        
+        return " ".join(location_parts)
+        
+    except Exception as e:
+        logger.error(f"Error formatting location: {str(e)}")
+        return "Location not available"
+
+
+async def get_ticket_location_from_bluestakes(ticket_number: str) -> str:
+    """
+    Get location information for a ticket from bluestakes data.
+    First checks local database, then fetches from bluestakes API if needed.
+    
+    Args:
+        ticket_number: The ticket number
+        
+    Returns:
+        Formatted location string
+    """
+    try:
+        # First, try to get from local database
+        result = (get_service_client()
+                 .table("bluestakes_tickets")
+                 .select("ticket_data")
+                 .eq("ticket_number", ticket_number)
+                 .limit(1)
+                 .execute())
+        
+        if result.data and result.data[0].get("ticket_data"):
+            bluestakes_data = result.data[0]["ticket_data"]
+            return format_location_from_bluestakes(bluestakes_data)
+        
+        # If not in database, fetch from bluestakes API
+        # We need to get company credentials for this ticket
+        company_result = (get_service_client()
+                         .table("project_tickets")
+                         .select("company_id")
+                         .eq("ticket_number", ticket_number)
+                         .limit(1)
+                         .execute())
+        
+        if not company_result.data:
+            return "Location not available"
+        
+        company_id = company_result.data[0]["company_id"]
+        
+        # Get company bluestakes credentials
+        company_creds = (get_service_client()
+                        .table("companies")
+                        .select("bluestakes_username, bluestakes_password")
+                        .eq("id", company_id)
+                        .not_.is_("bluestakes_username", "null")
+                        .not_.is_("bluestakes_password", "null")
+                        .execute())
+        
+        if not company_creds.data:
+            return "Location not available"
+        
+        # Fetch from bluestakes API
+        token = await get_bluestakes_auth_token(
+            company_creds.data[0]["bluestakes_username"],
+            company_creds.data[0]["bluestakes_password"]
+        )
+        
+        # Search for the specific ticket
+        search_params = {
+            "limit": 1,
+            "ticket": ticket_number
+        }
+        
+        bluestakes_response = await search_bluestakes_tickets(token, search_params)
+        
+        # Extract ticket data from response
+        ticket_data = None
+        if isinstance(bluestakes_response, dict) and "data" in bluestakes_response:
+            tickets = bluestakes_response["data"]
+            if tickets and len(tickets) > 0:
+                ticket_data = tickets[0]
+        elif isinstance(bluestakes_response, list) and len(bluestakes_response) > 0:
+            if "data" in bluestakes_response[0]:
+                tickets = bluestakes_response[0]["data"]
+                if tickets and len(tickets) > 0:
+                    ticket_data = tickets[0]
+        
+        if ticket_data:
+            # Save to database for future use
+            await save_bluestakes_ticket_data(ticket_number, ticket_data)
+            return format_location_from_bluestakes(ticket_data)
+        
+        return "Location not available"
+        
+    except Exception as e:
+        logger.error(f"Error getting location for ticket {ticket_number}: {str(e)}")
+        return "Location not available"
+
+
 async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]]:
     """
     Get active tickets for a project that should be included in the weekly digest.
+    Fetches bluestakes data for location information.
     
     Args:
         project_id: The project ID to get tickets for
         
     Returns:
-        List of ticket dictionaries with formatted data
+        List of ticket dictionaries with formatted data including location
     """
     try:
         # Query for active tickets in the project (only continue update tickets)
@@ -1097,11 +1282,15 @@ async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]
             # All tickets in digest are continue update tickets
             ticket_meta = "Continue Update"
             
+            # Get location from bluestakes data
+            location = await get_ticket_location_from_bluestakes(ticket["ticket_number"])
+            
             formatted_tickets.append({
                 "ticket_number": ticket["ticket_number"],
                 "replace_by_date_formatted": replace_by_formatted,
                 "legal_date_formatted": legal_date_formatted,
-                "ticket_meta": ticket_meta
+                "ticket_meta": ticket_meta,
+                "location": location
             })
         
         # Sort by replace_by_date (soonest first)
@@ -1191,10 +1380,9 @@ async def render_weekly_digest_template(template_data: Dict[str, Any], projects_
         # Generate project blocks
         project_blocks = []
         for project in projects_data:
-            # Render project block with project data
+            # Render project block with project data (removed project_id)
             project_block = EmailService._render_template(
                 project_block_template,
-                project_id=project["project_id"],
                 project_name=project["project_name"],
                 project_ticket_count=str(project["ticket_count"])
             )
@@ -1213,7 +1401,10 @@ async def render_weekly_digest_template(template_data: Dict[str, Any], projects_
                 # Generate ticket items
                 ticket_items = []
                 for ticket in project["tickets"]:
-                    ticket_item = EmailService._render_template(ticket_item_template, **ticket)
+                    # Add location to ticket data for template rendering
+                    ticket_data = ticket.copy()
+                    ticket_data["location"] = ticket.get("location", "Location not available")
+                    ticket_item = EmailService._render_template(ticket_item_template, **ticket_data)
                     ticket_items.append(ticket_item)
                 
                 # Replace ticket section with generated items

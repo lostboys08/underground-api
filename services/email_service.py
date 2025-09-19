@@ -266,6 +266,56 @@ class EmailService:
         }
     
     @staticmethod
+    async def send_invitation_email(email: str, company_name: str) -> Dict:
+        """
+        Send an invitation email using the user_invitation.html template.
+        
+        Args:
+            email: Recipient email address
+            company_name: Name of the company sending the invitation
+            
+        Returns:
+            Dict with email sending results
+        """
+        EmailService._ensure_api_key()
+        
+        # Load the invitation template
+        template_content = EmailService._load_template("user_invitation.html")
+        
+        # Template data
+        template_data = {
+            "company_name": company_name,
+            "company_address": "123 Main St, City, State 12345",  # You may want to make this configurable
+            "support_url": "https://underground-iq.com/support"
+        }
+        
+        # Render the template
+        html_content = EmailService._render_template(template_content, **template_data)
+        
+        params: resend.Emails.SendParams = {
+            "from": "UndergoundIQ@underground-iq.com",
+            "to": [email],
+            "subject": f"You're invited to join {company_name} on Underground IQ",
+            "html": html_content,
+        }
+        
+        try:
+            email_result: resend.Email = resend.Emails.send(params)
+            logger.info(f"Invitation email sent successfully to {email}: {email_result}")
+            
+            return {
+                "status": "success",
+                "message": "Invitation email sent successfully",
+                "email_id": email_result.get("id") if isinstance(email_result, dict) else str(email_result),
+                "to": [email],
+                "subject": params["subject"],
+                "template_used": "user_invitation.html"
+            }
+        except Exception as e:
+            logger.error(f"Error sending invitation email to {email}: {str(e)}")
+            raise
+
+    @staticmethod
     async def send_weekly_digest_email(to_email: str, subject: str, html_content: str) -> Dict:
         """
         Send a weekly digest email using the rendered HTML content.

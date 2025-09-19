@@ -19,6 +19,11 @@ class TicketEmailRequest(BaseModel):
     email_type: str = "notification"
 
 
+class InvitationEmailRequest(BaseModel):
+    email: str
+    company_name: str
+
+
 @router.post("/test")
 async def send_test_email() -> Dict:
     """
@@ -63,6 +68,28 @@ async def send_ticket_email(request: TicketEmailRequest) -> Dict:
         )
 
 
+@router.post("/invitation")
+async def send_invitation_email(request: InvitationEmailRequest) -> Dict:
+    """
+    Send an invitation email to a user to join Underground IQ.
+    """
+    try:
+        result = await EmailService.send_invitation_email(
+            email=request.email,
+            company_name=request.company_name
+        )
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error sending invitation email: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send invitation email: {str(e)}"
+        )
+
+
 @router.get("/status")
 async def email_service_status() -> Dict:
     """
@@ -71,4 +98,5 @@ async def email_service_status() -> Dict:
     status = EmailService.get_service_status()
     status["test_endpoint"] = "/emails/test"
     status["ticket_endpoint"] = "/emails/ticket"
+    status["invitation_endpoint"] = "/emails/invitation"
     return status
