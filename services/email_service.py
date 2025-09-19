@@ -5,6 +5,7 @@ Centralizes all email functionality for both manual and scheduled sending.
 import os
 import logging
 from typing import Dict, List, Optional
+from pathlib import Path
 import resend
 
 logger = logging.getLogger(__name__)
@@ -25,20 +26,89 @@ class EmailService:
             raise ValueError("RESEND_API_KEY environment variable not configured")
     
     @staticmethod
+    def _load_template(template_name: str) -> str:
+        """
+        Load an HTML template from the templates directory.
+        
+        Args:
+            template_name: Name of the template file (e.g., 'weekly_projects_digest.html')
+            
+        Returns:
+            Template content as string
+        """
+        template_path = Path(__file__).parent.parent / "templates" / "email" / template_name
+        
+        if not template_path.exists():
+            raise FileNotFoundError(f"Template not found: {template_path}")
+        
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    
+    @staticmethod
+    def _render_template(template_content: str, **kwargs) -> str:
+        """
+        Render a template by replacing placeholder variables.
+        
+        Args:
+            template_content: The template content as string
+            **kwargs: Variables to replace in the template
+            
+        Returns:
+            Rendered template content
+        """
+        rendered = template_content
+        
+        # Replace all template variables
+        for key, value in kwargs.items():
+            placeholder = f"{{{{{key}}}}}"
+            rendered = rendered.replace(placeholder, str(value))
+        
+        return rendered
+    
+    @staticmethod
     async def send_test_email() -> Dict:
         """
-        Send a basic test email for testing purposes.
+        Send a test email using the weekly_projects_digest.html template.
         
         Returns:
             Dict with email sending results
         """
         EmailService._ensure_api_key()
         
+        # Load the weekly projects digest template
+        template_content = EmailService._load_template("weekly_projects_digest.html")
+        
+        # Sample data for testing the template
+        sample_data = {
+            "company_name": "UndergroundIQ",
+            "company_address": "123 Main St, City, State 12345",
+            "support_url": "https://underground-iq.com/support",
+            "unsubscribe_url": "https://underground-iq.com/unsubscribe",
+            "preferences_url": "https://underground-iq.com/preferences",
+            "recipient_name": "Test User",
+            "week_start": "2024-01-15",
+            "week_end": "2024-01-21",
+            "preheader_text": "Your weekly projects and tickets summary",
+            "total_projects": "2",
+            "total_tickets": "5",
+            "project_id": "PROJ-001",
+            "project_name": "Sample Project Alpha",
+            "project_image_url": "https://via.placeholder.com/568x200/0f172a/ffffff?text=Project+Map",
+            "project_ticket_count": "3",
+            "ticket_number": "TKT-001",
+            "replace_by_date": "2024-02-15",
+            "legal_date": "2024-02-20",
+            "ticket_meta": "High Priority"
+        }
+        
+        # Render the template with sample data
+        html_content = EmailService._render_template(template_content, **sample_data)
+        
         params: resend.Emails.SendParams = {
             "from": "UndergoundIQ@underground-iq.com",
             "to": ["kaim@kennyseng.com"],
-            "subject": "Hello World",
-            "html": "<strong>it works!</strong>",
+            "subject": "Weekly Projects & Tickets Digest - Test",
+            "html": html_content,
         }
         
         try:
@@ -47,10 +117,11 @@ class EmailService:
             
             return {
                 "status": "success",
-                "message": "Test email sent successfully",
+                "message": "Test email sent successfully using weekly_projects_digest.html template",
                 "email_id": email.get("id") if isinstance(email, dict) else str(email),
                 "to": params["to"],
-                "subject": params["subject"]
+                "subject": params["subject"],
+                "template_used": "weekly_projects_digest.html"
             }
         except Exception as e:
             logger.error(f"Error sending test email: {str(e)}")
