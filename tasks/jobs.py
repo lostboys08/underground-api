@@ -1167,19 +1167,7 @@ async def get_ticket_location_from_bluestakes(ticket_number: str) -> str:
         Formatted location string
     """
     try:
-        # First, try to get from local database
-        result = (get_service_client()
-                 .table("bluestakes_tickets")
-                 .select("ticket_data")
-                 .eq("ticket_number", ticket_number)
-                 .limit(1)
-                 .execute())
-        
-        if result.data and result.data[0].get("ticket_data"):
-            bluestakes_data = result.data[0]["ticket_data"]
-            return format_location_from_bluestakes(bluestakes_data)
-        
-        # If not in database, fetch from bluestakes API
+        # Fetch directly from bluestakes API (no local database caching)
         # We need to get company credentials for this ticket
         company_result = (get_service_client()
                          .table("project_tickets")
@@ -1216,8 +1204,6 @@ async def get_ticket_location_from_bluestakes(ticket_number: str) -> str:
         ticket_data = await get_ticket_details(token, ticket_number)
         
         if ticket_data and not ticket_data.get("error"):
-            # Save to database for future use
-            await save_bluestakes_ticket_data(ticket_number, ticket_data)
             return format_location_from_bluestakes(ticket_data)
         
         return "Location not available"
