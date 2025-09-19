@@ -159,7 +159,7 @@ class EmailService:
                 <p><strong>Legal Date:</strong> {ticket_details.get('legal_date', 'N/A')}</p>
                 <p><strong>Project ID:</strong> {ticket_details.get('project_id', 'N/A')}</p>
                 
-                {'<p><strong>Continue Update:</strong> Yes</p>' if ticket_details.get('is_continue_update') else ''}
+                {'<p><strong>Continue Updates:</strong> Yes</p>' if ticket_details.get('is_continue_update') else ''}
                 
                 <hr style="margin: 20px 0;">
                 <p style="color: #666; font-size: 12px;">
