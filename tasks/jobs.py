@@ -958,10 +958,10 @@ async def send_weekly_project_digest():
                 "emails_sent": 0
             }
         
-        # Calculate week range (current week)
+        # Calculate week range (Monday-Friday)
         today = datetime.now()
         week_start = today - timedelta(days=today.weekday())  # Monday
-        week_end = week_start + timedelta(days=6)  # Sunday
+        week_end = week_start + timedelta(days=4)  # Friday
         
         # Format dates for template
         week_start_str = week_start.strftime("%B %d")
@@ -1016,7 +1016,7 @@ async def send_weekly_project_digest():
                     "recipient_name": user_name,
                     "week_start": week_start_str,
                     "week_end": week_end_str,
-                    "preheader_text": f"Your weekly projects and tickets summary for {week_start_str} - {week_end_str}",
+                    "preheader_text": f"Your weekly projects and tickets summary for {week_start_str} - {week_end_str} (Monday-Friday)",
                     "total_projects": str(len(projects_data)),
                     "total_tickets": str(total_tickets)
                 }
@@ -1027,7 +1027,7 @@ async def send_weekly_project_digest():
                 # Send email
                 result = await EmailService.send_weekly_digest_email(
                     to_email=user_email,
-                    subject=f"Weekly Projects & Tickets Digest - {week_start_str} to {week_end_str}",
+                    subject=f"Weekly Projects & Tickets Digest - {week_start_str} to {week_end_str} (Mon-Fri)",
                     html_content=html_content
                 )
                 
@@ -1047,7 +1047,7 @@ async def send_weekly_project_digest():
             "message": "Weekly project digest job completed",
             "emails_sent": emails_sent,
             "errors": errors,
-            "week_range": f"{week_start_str} - {week_end_str}"
+            "week_range": f"{week_start_str} - {week_end_str} (Mon-Fri)"
         }
         
     except Exception as e:
@@ -1070,11 +1070,12 @@ async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]
         List of ticket dictionaries with formatted data
     """
     try:
-        # Query for active tickets in the project
+        # Query for active tickets in the project (only continue update tickets)
         result = (get_service_client()
                  .table("project_tickets")
                  .select("ticket_number, replace_by_date, legal_date, is_continue_update")
                  .eq("project_id", project_id)
+                 .eq("is_continue_update", True)
                  .not_.is_("replace_by_date", "null")
                  .execute())
         
@@ -1093,8 +1094,8 @@ async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]
                 legal_date = datetime.fromisoformat(ticket["legal_date"].replace("Z", "+00:00"))
                 legal_date_formatted = legal_date.strftime("%A, %B %d")
             
-            # Determine ticket metadata
-            ticket_meta = "Continue Update" if ticket.get("is_continue_update") else "New Ticket"
+            # All tickets in digest are continue update tickets
+            ticket_meta = "Continue Update"
             
             formatted_tickets.append({
                 "ticket_number": ticket["ticket_number"],
