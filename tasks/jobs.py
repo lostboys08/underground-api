@@ -974,7 +974,7 @@ async def send_weekly_project_digest():
         for user in users:
             try:
                 user_email = user["email"]
-                user_name = user.get("name", "User")
+                user_name = user.get("name", "User").split(" ")[0]
                 
                 # Get projects assigned to this user
                 user_projects = await get_assigned_projects_for_user(user_email)
@@ -1027,7 +1027,7 @@ async def send_weekly_project_digest():
                 # Send email
                 result = await EmailService.send_weekly_digest_email(
                     to_email=user_email,
-                    subject=f"Weekly Projects & Tickets Digest - {week_start_str} to {week_end_str} (Mon-Fri)",
+                    subject=f"Weekly Projects & Tickets Digest - {week_start_str} to {week_end_str}",
                     html_content=html_content
                 )
                 
