@@ -47,13 +47,6 @@
                   </tr>
                   <tr>
                     <td style="padding: 0 16px 16px 16px;">
-                      <!-- Optional map image for the project -->
-                      <!-- Provide a hosted image URL for {{project_image_url}} -->
-                      <img src="{{project_image_url}}" alt="Project map for {{project_name}}" width="568" style="width:100%; max-width:568px; height:auto; border-radius:6px; background:#e2e8f0;">
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 0 16px 16px 16px;">
                       <div style="font-size:14px; font-weight:600; color:#0f172a; margin-bottom:8px;">Tickets</div>
                       <table role="presentation" width="100%" style="border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
                         <!-- TICKETS_START: The row below will be repeated for each ticket. -->
@@ -63,7 +56,7 @@
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                               <div>
                                 <div style="font-weight:600;">{{ticket_number}}</div>
-                                <div style="font-size:12px; color:#64748b;">Replace by: {{replace_by_date}} • Legal: {{legal_date}}</div>
+                                <div style="font-size:12px; color:#64748b;">Replace by: {{replace_by_date_formatted}} • Legal: {{legal_date_formatted}}</div>
                               </div>
                               <div style="font-size:12px; color:#64748b; text-align:right;">
                                 {{ticket_meta}}
@@ -105,9 +98,10 @@
       - {{recipient_name}}, {{week_start}}, {{week_end}}, {{preheader_text}}
       - {{total_projects}}, {{total_tickets}}
       - Repeatable project block between PROJECT_BLOCK_START/END with:
-          {{project_id}}, {{project_name}}, {{project_image_url}}, {{project_ticket_count}}
+          {{project_id}}, {{project_name}}, {{project_ticket_count}}
       - Repeatable ticket row between TICKET_ITEM_START/END with:
-          {{ticket_number}}, {{replace_by_date}}, {{legal_date}}, {{ticket_meta}}
+          {{ticket_number}}, {{replace_by_date_formatted}}, {{legal_date_formatted}}, {{ticket_meta}}
+          Note: Date fields should be formatted as "weekday, month date" (e.g., "Monday, January 15")
 
     Rendering guidance:
       - Duplicate the PROJECT_BLOCK for each project and fill tokens.

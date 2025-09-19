@@ -7,7 +7,7 @@ from typing import Optional
 import os
 import logging
 from datetime import datetime
-from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails, sync_updateable_tickets, send_notification_emails
+from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails, sync_updateable_tickets, send_notification_emails, send_weekly_project_digest
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +272,37 @@ async def sync_updatable_tickets_cron(
     }
 
 
+@cron_router.post("/send-weekly-project-digest")
+async def send_weekly_project_digest_cron(
+    background_tasks: BackgroundTasks,
+    x_cron_secret: Optional[str] = Header(None)
+):
+    """
+    Send weekly project digest emails job.
+    
+    This endpoint should be called weekly to send project and ticket digest emails
+    to all assigned users using the weekly_projects_digest.html template.
+    
+    Headers:
+        X-CRON-SECRET: Secret key for cron job authentication
+        
+    Returns:
+        JSON response indicating the job was queued successfully
+    """
+    verify_cron_secret(x_cron_secret)
+    
+    logger.info("Send weekly project digest cron job triggered")
+    
+    # Add the job to background tasks so we can respond immediately
+    background_tasks.add_task(send_weekly_project_digest)
+    
+    return {
+        "status": "success",
+        "message": "Weekly project digest job queued successfully",
+        "job": "send_weekly_project_digest"
+    }
+
+
 @cron_router.get("/status")
 async def cron_status(x_cron_secret: Optional[str] = Header(None)):
     """
@@ -322,6 +353,11 @@ async def cron_status(x_cron_secret: Optional[str] = Header(None)):
                 "method": "POST",
                 "description": "Sync updateable tickets with BlueStakes verification",
                 "parameters": ["company_id"]
+            },
+            {
+                "endpoint": "/cron/send-weekly-project-digest",
+                "method": "POST",
+                "description": "Send weekly project digest emails to assigned users"
             }
         ],
         "authentication": {

@@ -264,3 +264,40 @@ class EmailService:
             "api_key_set": "RESEND_API_KEY" in os.environ,
             "ready": bool(resend.api_key)
         }
+    
+    @staticmethod
+    async def send_weekly_digest_email(to_email: str, subject: str, html_content: str) -> Dict:
+        """
+        Send a weekly digest email using the rendered HTML content.
+        
+        Args:
+            to_email: Recipient email address
+            subject: Email subject line
+            html_content: Rendered HTML content from template
+            
+        Returns:
+            Dict with email sending results
+        """
+        EmailService._ensure_api_key()
+        
+        params: resend.Emails.SendParams = {
+            "from": "UndergoundIQ@underground-iq.com",
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content,
+        }
+        
+        try:
+            email: resend.Email = resend.Emails.send(params)
+            logger.info(f"Weekly digest email sent successfully to {to_email}: {email}")
+            
+            return {
+                "status": "success",
+                "message": "Weekly digest email sent successfully",
+                "email_id": email.get("id") if isinstance(email, dict) else str(email),
+                "to": [to_email],
+                "subject": subject
+            }
+        except Exception as e:
+            logger.error(f"Error sending weekly digest email to {to_email}: {str(e)}")
+            raise

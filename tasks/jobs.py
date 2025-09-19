@@ -933,3 +933,304 @@ async def send_notification_emails():
             "timestamp": datetime.utcnow().isoformat(),
             "message": "Notification email job failed"
         }
+
+
+async def send_weekly_project_digest():
+    """
+    Send weekly project digest emails to all assigned users.
+    This function queries Supabase for active projects and tickets,
+    then sends formatted digest emails using the weekly_projects_digest.html template.
+    """
+    logger.info("Starting weekly project digest job")
+    
+    try:
+        from services.email_service import EmailService
+        
+        # Get all unique assigned users
+        users = await get_unique_assigned_users()
+        logger.info(f"Found {len(users)} assigned users for weekly digest")
+        
+        if not users:
+            logger.warning("No assigned users found for weekly digest")
+            return {
+                "status": "completed",
+                "message": "No users to send digest to",
+                "emails_sent": 0
+            }
+        
+        # Calculate week range (current week)
+        today = datetime.now()
+        week_start = today - timedelta(days=today.weekday())  # Monday
+        week_end = week_start + timedelta(days=6)  # Sunday
+        
+        # Format dates for template
+        week_start_str = week_start.strftime("%B %d")
+        week_end_str = week_end.strftime("%B %d")
+        
+        emails_sent = 0
+        errors = []
+        
+        # Process each user
+        for user in users:
+            try:
+                user_email = user["email"]
+                user_name = user.get("name", "User")
+                
+                # Get projects assigned to this user
+                user_projects = await get_assigned_projects_for_user(user_email)
+                
+                if not user_projects:
+                    logger.debug(f"No projects found for user {user_email}")
+                    continue
+                
+                # Get tickets for each project
+                projects_data = []
+                total_tickets = 0
+                
+                for project in user_projects:
+                    project_tickets = await get_project_tickets_for_digest(project["id"])
+                    
+                    if project_tickets:
+                        projects_data.append({
+                            "project_id": project["id"],
+                            "project_name": project["name"],
+                            "tickets": project_tickets,
+                            "ticket_count": len(project_tickets)
+                        })
+                        total_tickets += len(project_tickets)
+                
+                if not projects_data:
+                    logger.debug(f"No active tickets found for user {user_email}")
+                    continue
+                
+                # Get company information (assuming all projects belong to the same company)
+                company_info = await get_company_info_for_digest(projects_data[0]["project_id"])
+                
+                # Prepare template data
+                template_data = {
+                    "company_name": company_info.get("name", "UndergroundIQ"),
+                    "company_address": company_info.get("address", "123 Main St, City, State 12345"),
+                    "support_url": "https://underground-iq.com/support",
+                    "unsubscribe_url": "https://underground-iq.com/unsubscribe",
+                    "preferences_url": "https://underground-iq.com/preferences",
+                    "recipient_name": user_name,
+                    "week_start": week_start_str,
+                    "week_end": week_end_str,
+                    "preheader_text": f"Your weekly projects and tickets summary for {week_start_str} - {week_end_str}",
+                    "total_projects": str(len(projects_data)),
+                    "total_tickets": str(total_tickets)
+                }
+                
+                # Render the template with project data
+                html_content = await render_weekly_digest_template(template_data, projects_data)
+                
+                # Send email
+                result = await EmailService.send_weekly_digest_email(
+                    to_email=user_email,
+                    subject=f"Weekly Projects & Tickets Digest - {week_start_str} to {week_end_str}",
+                    html_content=html_content
+                )
+                
+                emails_sent += 1
+                logger.info(f"Weekly digest sent to {user_email}: {result}")
+                
+            except Exception as e:
+                error_msg = f"Error sending digest to {user.get('email', 'unknown')}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.info(f"Weekly project digest job completed: {emails_sent} emails sent, {len(errors)} errors")
+        
+        return {
+            "status": "completed",
+            "message": "Weekly project digest job completed",
+            "emails_sent": emails_sent,
+            "errors": errors,
+            "week_range": f"{week_start_str} - {week_end_str}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Critical error in weekly project digest job: {str(e)}")
+        return {
+            "status": "failed",
+            "error": str(e),
+            "message": "Weekly project digest job failed"
+        }
+
+
+async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]]:
+    """
+    Get active tickets for a project that should be included in the weekly digest.
+    
+    Args:
+        project_id: The project ID to get tickets for
+        
+    Returns:
+        List of ticket dictionaries with formatted data
+    """
+    try:
+        # Query for active tickets in the project
+        result = (get_service_client()
+                 .table("project_tickets")
+                 .select("ticket_number, replace_by_date, legal_date, is_continue_update")
+                 .eq("project_id", project_id)
+                 .not_.is_("replace_by_date", "null")
+                 .execute())
+        
+        if not result.data:
+            return []
+        
+        # Format tickets for template
+        formatted_tickets = []
+        for ticket in result.data:
+            # Format dates as "weekday, month date" (e.g., "Monday, January 15")
+            replace_by_date = datetime.fromisoformat(ticket["replace_by_date"].replace("Z", "+00:00"))
+            replace_by_formatted = replace_by_date.strftime("%A, %B %d")
+            
+            legal_date_formatted = "N/A"
+            if ticket.get("legal_date"):
+                legal_date = datetime.fromisoformat(ticket["legal_date"].replace("Z", "+00:00"))
+                legal_date_formatted = legal_date.strftime("%A, %B %d")
+            
+            # Determine ticket metadata
+            ticket_meta = "Continue Update" if ticket.get("is_continue_update") else "New Ticket"
+            
+            formatted_tickets.append({
+                "ticket_number": ticket["ticket_number"],
+                "replace_by_date_formatted": replace_by_formatted,
+                "legal_date_formatted": legal_date_formatted,
+                "ticket_meta": ticket_meta
+            })
+        
+        # Sort by replace_by_date (soonest first)
+        formatted_tickets.sort(key=lambda t: t["replace_by_date_formatted"])
+        
+        return formatted_tickets
+        
+    except Exception as e:
+        logger.error(f"Error getting project tickets for digest (project {project_id}): {str(e)}")
+        return []
+
+
+async def get_company_info_for_digest(project_id: int) -> Dict[str, Any]:
+    """
+    Get company information for a project.
+    
+    Args:
+        project_id: The project ID to get company info for
+        
+    Returns:
+        Dictionary with company information
+    """
+    try:
+        # Get project to find company
+        project_result = (get_service_client()
+                        .table("projects")
+                        .select("company_id")
+                        .eq("id", project_id)
+                        .execute())
+        
+        if not project_result.data:
+            return {"name": "UndergroundIQ", "address": "123 Main St, City, State 12345"}
+        
+        company_id = project_result.data[0]["company_id"]
+        
+        # Get company details
+        company_result = (get_service_client()
+                         .table("companies")
+                         .select("name, address")
+                         .eq("id", company_id)
+                         .execute())
+        
+        if company_result.data:
+            return company_result.data[0]
+        else:
+            return {"name": "UndergroundIQ", "address": "123 Main St, City, State 12345"}
+            
+    except Exception as e:
+        logger.error(f"Error getting company info for digest (project {project_id}): {str(e)}")
+        return {"name": "UndergroundIQ", "address": "123 Main St, City, State 12345"}
+
+
+async def render_weekly_digest_template(template_data: Dict[str, Any], projects_data: List[Dict[str, Any]]) -> str:
+    """
+    Render the weekly digest template with project data.
+    
+    Args:
+        template_data: Base template variables
+        projects_data: List of project data with tickets
+        
+    Returns:
+        Rendered HTML content
+    """
+    try:
+        from services.email_service import EmailService
+        
+        # Load the template
+        template_content = EmailService._load_template("weekly_projects_digest.html")
+        
+        # Start with base template data
+        rendered = EmailService._render_template(template_content, **template_data)
+        
+        # Handle project blocks - find the project block section
+        project_block_start = "<!-- PROJECT_BLOCK_START -->"
+        project_block_end = "<!-- PROJECT_BLOCK_END -->"
+        
+        start_idx = rendered.find(project_block_start)
+        end_idx = rendered.find(project_block_end)
+        
+        if start_idx == -1 or end_idx == -1:
+            logger.warning("Could not find project block markers in template")
+            return rendered
+        
+        # Extract the project block template
+        project_block_template = rendered[start_idx:end_idx + len(project_block_end)]
+        
+        # Generate project blocks
+        project_blocks = []
+        for project in projects_data:
+            # Render project block with project data
+            project_block = EmailService._render_template(
+                project_block_template,
+                project_id=project["project_id"],
+                project_name=project["project_name"],
+                project_ticket_count=str(project["ticket_count"])
+            )
+            
+            # Handle ticket items within this project block
+            ticket_item_start = "<!-- TICKET_ITEM_START -->"
+            ticket_item_end = "<!-- TICKET_ITEM_END -->"
+            
+            ticket_start_idx = project_block.find(ticket_item_start)
+            ticket_end_idx = project_block.find(ticket_item_end)
+            
+            if ticket_start_idx != -1 and ticket_end_idx != -1:
+                # Extract ticket item template
+                ticket_item_template = project_block[ticket_start_idx:ticket_end_idx + len(ticket_item_end)]
+                
+                # Generate ticket items
+                ticket_items = []
+                for ticket in project["tickets"]:
+                    ticket_item = EmailService._render_template(ticket_item_template, **ticket)
+                    ticket_items.append(ticket_item)
+                
+                # Replace ticket section with generated items
+                ticket_section = "".join(ticket_items)
+                project_block = (project_block[:ticket_start_idx] + 
+                               ticket_section + 
+                               project_block[ticket_end_idx + len(ticket_item_end):])
+            
+            project_blocks.append(project_block)
+        
+        # Replace the original project block with all generated blocks
+        all_project_blocks = "".join(project_blocks)
+        final_rendered = (rendered[:start_idx] + 
+                         all_project_blocks + 
+                         rendered[end_idx + len(project_block_end):])
+        
+        return final_rendered
+        
+    except Exception as e:
+        logger.error(f"Error rendering weekly digest template: {str(e)}")
+        raise
