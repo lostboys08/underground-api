@@ -1137,9 +1137,9 @@ def format_location_from_bluestakes(bluestakes_data: Dict[str, Any]) -> str:
         
         # Add cross streets if available
         cross_streets = []
-        if cross1 and cross1 != 0:
+        if cross1 and cross1 != " ":
             cross_streets.append(cross1)
-        if cross2 and cross2 != 0:
+        if cross2 and cross2 != " ":
             cross_streets.append(cross2)
         
         if cross_streets:
