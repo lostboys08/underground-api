@@ -53,6 +53,7 @@ def is_public_endpoint(path: str) -> bool:
         "/cron/send-emails",
         "/cron/send-notifications",
         "/cron/sync-updatable-tickets",
+        "/cron/send-weekly-project-digest",
         "/cron/status"
     ]
     
@@ -160,4 +161,4 @@ async def get_authenticated_client(token: Optional[str] = Depends(get_auth_token
     try:
         return get_user_client(token)
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}") 
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
