@@ -1127,7 +1127,7 @@ def format_location_from_bluestakes(bluestakes_data: Dict[str, Any]) -> str:
         location_parts = []
         
         # Handle street with from/to addresses
-        if st_from_address and st_to_address and st_from_address != 0 and st_to_address != 0:
+        if st_from_address and st_to_address and st_from_address != "0" and st_to_address != "0":
             if st_from_address == st_to_address:
                 location_parts.append(f"{st_from_address} {street}")
             else:
