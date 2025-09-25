@@ -7,5 +7,17 @@
     "startCommand": "python -m playwright install --with-deps chromium && uvicorn main:app --host 0.0.0.0 --port $PORT",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
-  }
+  },
+  "cron": [
+    {
+      "name": "daily-update",
+      "schedule": "0 3 * * *",
+      "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/daily-update"
+    },
+    {
+      "name": "weekly-project-digest",
+      "schedule": "0 9 * * 1",
+      "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/send-weekly-project-digest"
+    }
+  ]
 }
