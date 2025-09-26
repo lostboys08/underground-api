@@ -22,7 +22,7 @@ class TicketEmailRequest(BaseModel):
 
 
 class InvitationEmailRequest(BaseModel):
-    email: str
+    email: EmailStr
     name: str
     role: str
     companyId: int
@@ -90,15 +90,7 @@ async def send_invitation_email(request: InvitationEmailRequest) -> Dict:
                 detail="All fields are required: email, name, role, companyId"
             )
         
-        # Validate email format
-        try:
-            EmailStr.validate(request.email)
-        except Exception:
-            logger.warning(f"Invalid email format provided: {request.email}")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid email format"
-            )
+        # Email format is automatically validated by Pydantic EmailStr
         
         # Validate role
         valid_roles = ["user", "admin", "manager"]
