@@ -4,8 +4,10 @@ Email routes for sending emails using Resend API.
 import logging
 from typing import Dict, List
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from services.email_service import EmailService
+from config.supabase_client import get_service_client
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,9 @@ class TicketEmailRequest(BaseModel):
 
 class InvitationEmailRequest(BaseModel):
     email: str
-    company_name: str
+    name: str
+    role: str
+    companyId: int
 
 
 @router.post("/test")
@@ -72,14 +76,96 @@ async def send_ticket_email(request: TicketEmailRequest) -> Dict:
 async def send_invitation_email(request: InvitationEmailRequest) -> Dict:
     """
     Send an invitation email to a user to join Underground IQ.
+    
+    Requires API key authentication (X-API-Key header).
+    Validates all required fields, looks up company information,
+    generates invitation URL, and sends professional invitation email.
     """
     try:
+        # Validate required fields
+        if not request.email or not request.name or not request.role or not request.companyId:
+            logger.warning(f"Missing required fields in invitation request: email={bool(request.email)}, name={bool(request.name)}, role={bool(request.role)}, companyId={bool(request.companyId)}")
+            raise HTTPException(
+                status_code=400,
+                detail="All fields are required: email, name, role, companyId"
+            )
+        
+        # Validate email format
+        try:
+            EmailStr.validate(request.email)
+        except Exception:
+            logger.warning(f"Invalid email format provided: {request.email}")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid email format"
+            )
+        
+        # Validate role
+        valid_roles = ["user", "admin", "manager"]
+        if request.role not in valid_roles:
+            logger.warning(f"Invalid role provided: {request.role}. Valid roles: {valid_roles}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+            )
+        
+        # Look up company information
+        try:
+            logger.info(f"Looking up company with ID: {request.companyId}")
+            company_result = get_service_client().table("companies").select("name").eq("id", request.companyId).execute()
+            
+            if not company_result.data:
+                logger.warning(f"Company with ID {request.companyId} not found")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Company with ID {request.companyId} not found"
+                )
+            
+            company_name = company_result.data[0]["name"]
+            logger.info(f"Found company: {company_name}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error looking up company {request.companyId}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to lookup company information"
+            )
+        
+        # Generate invitation URL with proper URL encoding
+        base_url = "https://app.underground-iq.com/signup"
+        params = {
+            "company_id": str(request.companyId),
+            "email": request.email,
+            "role": request.role
+        }
+        
+        # URL encode parameters
+        query_string = urllib.parse.urlencode(params)
+        invite_url = f"{base_url}?{query_string}"
+        logger.info(f"Generated invitation URL: {invite_url}")
+        
+        # Send invitation email
         result = await EmailService.send_invitation_email(
             email=request.email,
-            company_name=request.company_name
+            name=request.name,
+            company_name=company_name,
+            role=request.role,
+            invite_url=invite_url
         )
-        return result
         
+        logger.info(f"Successfully sent invitation email to {request.email} for {company_name} with role {request.role}")
+        
+        return {
+            "success": True,
+            "message": "Invitation sent successfully",
+            "email_sent": True,
+            "invite_url": invite_url
+        }
+        
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:

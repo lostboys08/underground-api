@@ -4,58 +4,164 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="x-ua-compatible" content="ie=edge">
-    <title>You're Invited to Underground IQ</title>
-    <meta name="x-preheader" content="{{company_name}} has invited you to join Underground IQ">
+    <title>You're Invited to Join {{company_name}} on UndergroundIQ</title>
+    <meta name="x-preheader" content="{{company_name}} has invited you to join UndergroundIQ - Bluestakes ticket management made simple">
     <style>
       /* Basic email-safe resets */
       body { margin: 0; padding: 0; background: #f6f7fb; -webkit-font-smoothing: antialiased; }
       img { border: 0; outline: none; text-decoration: none; display: block; }
       table { border-collapse: collapse; }
       a { color: #2563eb; text-decoration: none; }
+      
+      /* Responsive styles */
+      @media only screen and (max-width: 600px) {
+        .container { width: 100% !important; }
+        .content-padding { padding: 20px !important; }
+        .header-padding { padding: 16px 20px !important; }
+        .footer-padding { padding: 12px 20px !important; }
+        .button-padding { padding: 10px 20px !important; }
+        .benefit-item { margin-bottom: 16px !important; }
+      }
     </style>
   </head>
   <body style="margin:0; padding:0; background:#f6f7fb;">
     <table role="presentation" width="100%" bgcolor="#f6f7fb">
       <tr>
         <td align="center" style="padding: 24px 12px;">
-          <table role="presentation" width="100%" style="max-width:600px; background:#ffffff; border-radius:8px; overflow:hidden;">
+          <table role="presentation" width="100%" style="max-width:600px; background:#ffffff; border-radius:8px; overflow:hidden;" class="container">
+            <!-- Header -->
             <tr>
-              <td style="padding: 20px 24px; background:#0f172a; color:#ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                <div style="font-size:14px; opacity:0.9;">{{company_name}}</div>
-                <div style="font-size:20px; font-weight:600; margin-top:4px;">You're Invited to Underground IQ</div>
+              <td style="padding: 24px 24px; background:#0f172a; color:#ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;" class="header-padding">
+                <div style="text-align: center;">
+                  <div style="font-size:24px; font-weight:700; margin-bottom:8px;">UndergroundIQ</div>
+                  <div style="font-size:14px; opacity:0.9;">Bluestakes Ticket Management</div>
+                </div>
               </td>
             </tr>
+            
+            <!-- Main Content -->
             <tr>
-              <td style="padding: 32px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#0f172a; text-align:center;">
-                <p style="margin:0 0 24px 0; font-size:18px; font-weight:600; color:#0f172a;">
-                  You have been invited to join {{company_name}} on Underground IQ.
-                </p>
-                <p style="margin:0 0 32px 0; font-size:16px; line-height:1.5; color:#334155;">
-                  Get started by accepting your invitation and setting up your account.
-                </p>
+              <td style="padding: 32px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#0f172a;" class="content-padding">
+                <!-- Welcome Message -->
+                <div style="text-align: center; margin-bottom: 32px;">
+                  <h1 style="margin:0 0 16px 0; font-size:24px; font-weight:600; color:#0f172a;">
+                    Welcome, {{recipient_name}}!
+                  </h1>
+                  <p style="margin:0 0 24px 0; font-size:18px; font-weight:500; color:#334155;">
+                    You've been invited to join <strong>{{company_name}}</strong> on UndergroundIQ
+                  </p>
+                  <p style="margin:0; font-size:16px; line-height:1.6; color:#64748b;">
+                    Your role: <span style="background:#e0f2fe; color:#0369a1; padding:4px 8px; border-radius:4px; font-weight:500;">{{user_role}}</span>
+                  </p>
+                </div>
+
+                <!-- What is UndergroundIQ -->
+                <div style="background:#f8fafc; padding:24px; border-radius:8px; margin-bottom:32px;">
+                  <h2 style="margin:0 0 16px 0; font-size:20px; font-weight:600; color:#0f172a;">
+                    What is UndergroundIQ?
+                  </h2>
+                  <p style="margin:0 0 16px 0; font-size:16px; line-height:1.6; color:#334155;">
+                    UndergroundIQ is a comprehensive Bluestakes ticket management platform designed to streamline 
+                    your underground utility projects. We make it effortless to track, manage, and collaborate on 
+                    tickets across all your projects.
+                  </p>
+                </div>
+
+                <!-- Benefits -->
+                <div style="margin-bottom:32px;">
+                  <h2 style="margin:0 0 20px 0; font-size:20px; font-weight:600; color:#0f172a;">
+                    Why UndergroundIQ?
+                  </h2>
+                  
+                  <div style="margin-bottom:16px;" class="benefit-item">
+                    <div style="display:flex; align-items:flex-start;">
+                      <div style="background:#10b981; color:#ffffff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-right:12px; flex-shrink:0; font-size:12px; font-weight:600;">✓</div>
+                      <div>
+                        <strong style="color:#0f172a;">Effortless Ticket Tracking</strong>
+                        <p style="margin:4px 0 0 0; font-size:14px; color:#64748b;">Track tickets across all your projects with automated updates and notifications.</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style="margin-bottom:16px;" class="benefit-item">
+                    <div style="display:flex; align-items:flex-start;">
+                      <div style="background:#10b981; color:#ffffff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-right:12px; flex-shrink:0; font-size:12px; font-weight:600;">✓</div>
+                      <div>
+                        <strong style="color:#0f172a;">Automated Email Alerts</strong>
+                        <p style="margin:4px 0 0 0; font-size:14px; color:#64748b;">Stay in sync with your team through intelligent email notifications.</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style="margin-bottom:16px;" class="benefit-item">
+                    <div style="display:flex; align-items:flex-start;">
+                      <div style="background:#10b981; color:#ffffff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-right:12px; flex-shrink:0; font-size:12px; font-weight:600;">✓</div>
+                      <div>
+                        <strong style="color:#0f172a;">Interactive Maps</strong>
+                        <p style="margin:4px 0 0 0; font-size:14px; color:#64748b;">Visualize location data with interactive maps for better project planning.</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style="margin-bottom:16px;" class="benefit-item">
+                    <div style="display:flex; align-items:flex-start;">
+                      <div style="background:#10b981; color:#ffffff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-right:12px; flex-shrink:0; font-size:12px; font-weight:600;">✓</div>
+                      <div>
+                        <strong style="color:#0f172a;">Real-time Collaboration</strong>
+                        <p style="margin:4px 0 0 0; font-size:14px; color:#64748b;">Work together seamlessly with real-time updates and team coordination.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 
-                <!-- Button -->
-                <table role="presentation" style="margin: 0 auto;">
-                  <tr>
-                    <td style="background:#2563eb; border-radius:6px;">
-                      <a href="https://app.underground-iq.com/login" style="display:inline-block; padding:12px 24px; color:#ffffff; text-decoration:none; font-weight:600; font-size:16px;">
-                        Accept Invitation
-                      </a>
-                    </td>
-                  </tr>
-                </table>
+                <!-- Call to Action Button -->
+                <div style="text-align: center; margin-bottom:32px;">
+                  <table role="presentation" style="margin: 0 auto;">
+                    <tr>
+                      <td style="background:#2563eb; border-radius:8px;">
+                        <a href="{{invite_url}}" style="display:inline-block; padding:14px 28px; color:#ffffff; text-decoration:none; font-weight:600; font-size:16px;" class="button-padding">
+                          Accept Invitation & Get Started
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </div>
                 
-                <p style="margin: 24px 0 0 0; font-size:12px; color:#64748b;">
-                  If you're having trouble with the button above, copy and paste this link into your browser:<br>
-                  <a href="https://app.underground-iq.com/login" style="color:#2563eb; word-break:break-all;">https://app.underground-iq.com/login</a>
-                </p>
+                <!-- Fallback Link -->
+                <div style="text-align: center; margin-bottom:24px;">
+                  <p style="margin:0; font-size:14px; color:#64748b;">
+                    If the button above doesn't work, copy and paste this link into your browser:
+                  </p>
+                  <p style="margin:8px 0 0 0; font-size:12px; color:#2563eb; word-break:break-all;">
+                    <a href="{{invite_url}}" style="color:#2563eb;">{{invite_url}}</a>
+                  </p>
+                </div>
+
+                <!-- Additional Info -->
+                <div style="background:#f1f5f9; padding:20px; border-radius:8px; border-left:4px solid #2563eb;">
+                  <p style="margin:0; font-size:14px; color:#334155;">
+                    <strong>Need help getting started?</strong> Our support team is here to assist you. 
+                    Contact us at <a href="{{support_url}}" style="color:#2563eb;">{{support_url}}</a> for any questions.
+                  </p>
+                </div>
               </td>
             </tr>
+            
+            <!-- Footer -->
             <tr>
-              <td style="padding: 16px 24px; background:#f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#64748b; font-size:12px;">
-                <div>UndergroundIQ • Spanish Fork, UT</div>
-                <div style="margin-top:4px;">
-                  <a href="{{support_url}}" style="color:#64748b; text-decoration:underline;">Support</a>
+              <td style="padding: 20px 24px; background:#f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#64748b; font-size:12px;" class="footer-padding">
+                <div style="text-align: center;">
+                  <div style="margin-bottom:8px;">
+                    <strong style="color:#0f172a;">UndergroundIQ</strong> • Spanish Fork, UT
+                  </div>
+                  <div style="margin-bottom:8px;">
+                    Professional Bluestakes ticket management for underground utility projects
+                  </div>
+                  <div>
+                    <a href="{{support_url}}" style="color:#64748b; text-decoration:underline; margin-right:16px;">Support</a>
+                    <a href="https://underground-iq.com/privacy" style="color:#64748b; text-decoration:underline; margin-right:16px;">Privacy Policy</a>
+                    <a href="https://underground-iq.com/terms" style="color:#64748b; text-decoration:underline;">Terms of Service</a>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -65,12 +171,22 @@
     </table>
   </body>
   <!--
-    Placeholder contract:
+    Template Variables:
+      - {{recipient_name}}: The name of the person being invited
       - {{company_name}}: The name of the company sending the invitation
-      - {{company_address}}: Company address for footer
+      - {{user_role}}: The role assigned to the user (user, admin, manager)
+      - {{invite_url}}: The complete invitation URL with parameters
+      - {{company_address}}: Company address for footer (configurable)
       - {{support_url}}: Link to support/help resources
       
-    Note: The invitation link is currently hardcoded to "https://app.underground-iq.com/login"
-    but can be replaced with a dynamic {{invite_url}} token when proper invite functionality is implemented.
+    Features:
+      - Mobile responsive design
+      - Professional UndergroundIQ branding
+      - Clear explanation of platform benefits
+      - Prominent call-to-action button
+      - Fallback text link
+      - Comprehensive footer with company info
+      - Accessible color contrast
+      - Email-safe CSS styling
   -->
 </html>

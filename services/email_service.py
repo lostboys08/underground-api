@@ -266,13 +266,22 @@ class EmailService:
         }
     
     @staticmethod
-    async def send_invitation_email(email: str, company_name: str) -> Dict:
+    async def send_invitation_email(
+        email: str, 
+        name: str, 
+        company_name: str, 
+        role: str, 
+        invite_url: str
+    ) -> Dict:
         """
         Send an invitation email using the user_invitation.html template.
         
         Args:
             email: Recipient email address
+            name: Recipient's name
             company_name: Name of the company sending the invitation
+            role: User's assigned role
+            invite_url: The invitation URL with parameters
             
         Returns:
             Dict with email sending results
@@ -284,7 +293,10 @@ class EmailService:
         
         # Template data
         template_data = {
+            "recipient_name": name,
             "company_name": company_name,
+            "user_role": role,
+            "invite_url": invite_url,
             "company_address": "123 Main St, City, State 12345",  # You may want to make this configurable
             "support_url": "https://underground-iq.com/support"
         }
@@ -295,12 +307,13 @@ class EmailService:
         params: resend.Emails.SendParams = {
             "from": "UndergoundIQ@underground-iq.com",
             "to": [email],
-            "subject": f"You're invited to join {company_name} on Underground IQ",
+            "subject": f"You're invited to join {company_name} on UndergroundIQ",
             "html": html_content,
         }
         
         try:
-            email_result: resend.Email = resend.Emails.send(params)
+            logger.info(f"Sending invitation email to {email} for {company_name} with role {role}")
+            email_result: resend.Emails = resend.Emails.send(params)
             logger.info(f"Invitation email sent successfully to {email}: {email_result}")
             
             return {
@@ -312,8 +325,8 @@ class EmailService:
                 "template_used": "user_invitation.html"
             }
         except Exception as e:
-            logger.error(f"Error sending invitation email to {email}: {str(e)}")
-            raise
+            logger.error(f"Error sending invitation email to {email} for {company_name}: {str(e)}")
+            raise ValueError(f"Failed to send invitation email: {str(e)}")
 
     @staticmethod
     async def send_weekly_digest_email(to_email: str, subject: str, html_content: str) -> Dict:
