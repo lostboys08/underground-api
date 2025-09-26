@@ -50,20 +50,28 @@
                   <p style="margin:0 0 24px 0; font-size:18px; font-weight:500; color:#334155;">
                     You've been invited to join <strong>{{company_name}}</strong> on UndergroundIQ
                   </p>
-                  <p style="margin:0; font-size:16px; line-height:1.6; color:#64748b;">
-                    Your role: <span style="background:#e0f2fe; color:#0369a1; padding:4px 8px; border-radius:4px; font-weight:500;">{{user_role}}</span>
-                  </p>
                 </div>
 
-                <!-- What is UndergroundIQ -->
-                <div style="background:#f8fafc; padding:24px; border-radius:8px; margin-bottom:32px;">
-                  <h2 style="margin:0 0 16px 0; font-size:20px; font-weight:600; color:#0f172a;">
-                    What is UndergroundIQ?
-                  </h2>
-                  <p style="margin:0 0 16px 0; font-size:16px; line-height:1.6; color:#334155;">
-                    UndergroundIQ is a comprehensive Bluestakes ticket management platform designed to streamline 
-                    your underground utility projects. We make it effortless to track, manage, and collaborate on 
-                    tickets across all your projects.
+                <!-- Call to Action Button -->
+                <div style="text-align: center; margin-bottom:32px;">
+                  <table role="presentation" style="margin: 0 auto;">
+                    <tr>
+                      <td style="background:#2563eb; border-radius:8px;">
+                        <a href="{{invite_url}}" style="display:inline-block; padding:14px 28px; color:#ffffff; text-decoration:none; font-weight:600; font-size:16px;" class="button-padding">
+                          Accept Invitation & Get Started
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </div>
+                
+                <!-- Fallback Link -->
+                <div style="text-align: center; margin-bottom:24px;">
+                  <p style="margin:0; font-size:14px; color:#64748b;">
+                    If the button above doesn't work, copy and paste this link into your browser:
+                  </p>
+                  <p style="margin:8px 0 0 0; font-size:12px; color:#2563eb; word-break:break-all;">
+                    <a href="{{invite_url}}" style="color:#2563eb;">{{invite_url}}</a>
                   </p>
                 </div>
 
@@ -112,30 +120,6 @@
                       </div>
                     </div>
                   </div>
-                </div>
-                
-                <!-- Call to Action Button -->
-                <div style="text-align: center; margin-bottom:32px;">
-                  <table role="presentation" style="margin: 0 auto;">
-                    <tr>
-                      <td style="background:#2563eb; border-radius:8px;">
-                        <a href="{{invite_url}}" style="display:inline-block; padding:14px 28px; color:#ffffff; text-decoration:none; font-weight:600; font-size:16px;" class="button-padding">
-                          Accept Invitation & Get Started
-                        </a>
-                      </td>
-                    </tr>
-                  </table>
-                </div>
-                
-                <!-- Fallback Link -->
-                <div style="text-align: center; margin-bottom:24px;">
-                  <p style="margin:0; font-size:14px; color:#64748b;">
-                    If the button above doesn't work, copy and paste this link into your browser:
-                  </p>
-                  <p style="margin:8px 0 0 0; font-size:12px; color:#2563eb; word-break:break-all;">
-                    <a href="{{invite_url}}" style="color:#2563eb;">{{invite_url}}</a>
-                  </p>
-                </div>
 
                 <!-- Additional Info -->
                 <div style="background:#f1f5f9; padding:20px; border-radius:8px; border-left:4px solid #2563eb;">

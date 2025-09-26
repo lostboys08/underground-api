@@ -305,7 +305,7 @@ class EmailService:
         html_content = EmailService._render_template(template_content, **template_data)
         
         params: resend.Emails.SendParams = {
-            "from": "UndergoundIQ@underground-iq.com",
+            "from": "invites@underground-iq.com",
             "to": [email],
             "subject": f"You're invited to join {company_name} on UndergroundIQ",
             "html": html_content,
