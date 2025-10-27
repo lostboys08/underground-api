@@ -278,10 +278,13 @@ async def send_weekly_project_digest_cron(
     x_cron_secret: Optional[str] = Header(None)
 ):
     """
-    Send weekly project digest emails job.
+    Send weekly project digest emails job using Next.js API.
     
-    This endpoint should be called weekly to send project and ticket digest emails
-    to all assigned users using the weekly_projects_digest.html template.
+    This endpoint triggers the bulk email process that:
+    1. Queries all assigned users from the database
+    2. For each user, gathers their projects and active tickets
+    3. Sends individual weekly update emails via Next.js API using 'weeklyUpdate' template
+    4. Automatically calculates new tickets (legal date within 7 days) and expiring tickets
     
     Headers:
         X-CRON-SECRET: Secret key for cron job authentication

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 import httpx
 from config.supabase_client import get_service_client
-import resend
+# import resend  # No longer needed - using Next.js API
 import os
 
 # Import BlueStakes API functions from utils module to avoid circular imports
@@ -937,9 +937,16 @@ async def send_notification_emails():
 
 async def send_weekly_project_digest():
     """
-    Send weekly project digest emails to all assigned users.
-    This function queries Supabase for active projects and tickets,
-    then sends formatted digest emails using the weekly_projects_digest.html template.
+    Send weekly project digest emails to all assigned users using Next.js API.
+    
+    This function:
+    1. Queries Supabase for all assigned users
+    2. For each user, gets their assigned projects and active tickets
+    3. Transforms the data to match the Next.js API format
+    4. Sends individual weekly update emails using the 'weeklyUpdate' template
+    5. Calculates new tickets (legal date within 7 days) and expiring tickets (expires within 7 days)
+    
+    This is the bulk email process that aggregates all users and sends emails one at a time.
     """
     logger.info("Starting weekly project digest job")
     
@@ -1006,29 +1013,24 @@ async def send_weekly_project_digest():
                 # Get company information (assuming all projects belong to the same company)
                 company_info = await get_company_info_for_digest(projects_data[0]["project_id"])
                 
-                # Prepare template data
-                template_data = {
-                    "company_name": company_info.get("name", "UndergroundIQ"),
-                    "company_address": company_info.get("address", "123 Main St, City, State 12345"),
-                    "support_url": "https://underground-iq.com/support",
-                    "unsubscribe_url": "https://underground-iq.com/unsubscribe",
-                    "preferences_url": "https://underground-iq.com/preferences",
-                    "recipient_name": user_name,
-                    "week_start": week_start_str,
-                    "week_end": week_end_str,
-                    "preheader_text": f"Your weekly projects and tickets summary for {week_start_str} - {week_end_str} (Monday-Friday)",
-                    "total_projects": str(len(projects_data)),
-                    "total_tickets": str(total_tickets)
-                }
+                # Transform data for new Next.js API format
+                user_digest_data = await prepare_user_digest_data(
+                    projects_data, 
+                    company_info,
+                    week_start_str,
+                    week_end_str,
+                    week_start.year
+                )
                 
-                # Render the template with project data
-                html_content = await render_weekly_digest_template(template_data, projects_data)
-                
-                # Send email
-                result = await EmailService.send_weekly_digest_email(
-                    to_email=user_email,
-                    subject=f"Weekly Projects & Tickets Digest - {week_start_str} to {week_end_str}",
-                    html_content=html_content
+                # Send email using new Next.js API
+                result = await EmailService.send_weekly_update(
+                    to=[user_email],
+                    company_name=user_digest_data["company_name"],
+                    projects=user_digest_data["projects"],
+                    total_tickets=user_digest_data["total_tickets"],
+                    new_tickets=user_digest_data["new_tickets"],
+                    expiring_tickets=user_digest_data["expiring_tickets"],
+                    report_date=user_digest_data["report_date"]
                 )
                 
                 emails_sent += 1
@@ -1260,7 +1262,10 @@ async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]
                 "replace_by_date_formatted": replace_by_formatted,
                 "legal_date_formatted": legal_date_formatted,
                 "ticket_meta": ticket_meta,
-                "location": location
+                "location": location,
+                # Add raw datetime objects for new API
+                "replace_by_date_raw": replace_by_date,
+                "legal_date_raw": legal_date if ticket.get("legal_date") else None
             })
         
         # Sort by replace_by_date (soonest first)
@@ -1396,3 +1401,87 @@ async def render_weekly_digest_template(template_data: Dict[str, Any], projects_
     except Exception as e:
         logger.error(f"Error rendering weekly digest template: {str(e)}")
         raise
+
+
+async def prepare_user_digest_data(
+    projects_data: List[Dict[str, Any]], 
+    company_info: Dict[str, Any],
+    week_start_str: str,
+    week_end_str: str,
+    year: int
+) -> Dict[str, Any]:
+    """
+    Transform project data into the format required by the Next.js API.
+    
+    Args:
+        projects_data: List of project data with tickets
+        company_info: Company information
+        week_start_str: Week start string (e.g., "January 15")
+        week_end_str: Week end string (e.g., "January 19")
+        year: Year for the report
+        
+    Returns:
+        Dict with data formatted for send_weekly_update()
+    """
+    from services.email_service import Project, Ticket
+    from datetime import datetime, timedelta
+    
+    # Convert projects data to new format
+    new_projects = []
+    new_tickets_count = 0
+    expiring_tickets_count = 0
+    total_tickets = 0
+    
+    today = datetime.now()
+    seven_days_ago = today - timedelta(days=7)
+    seven_days_from_now = today + timedelta(days=7)
+    
+    for project_data in projects_data:
+        tickets = []
+        for ticket_data in project_data["tickets"]:
+            try:
+                # Use the raw datetime objects we added
+                legal_date_raw = ticket_data.get("legal_date_raw")
+                replace_by_date_raw = ticket_data.get("replace_by_date_raw")
+                
+                # Convert to YYYY-MM-DD format for the API
+                legal_date = legal_date_raw.strftime("%Y-%m-%d") if legal_date_raw else today.strftime("%Y-%m-%d")
+                expires_date = replace_by_date_raw.strftime("%Y-%m-%d") if replace_by_date_raw else today.strftime("%Y-%m-%d")
+                
+                # Count new tickets (legal date within 7 days)
+                if legal_date_raw and legal_date_raw >= seven_days_ago:
+                    new_tickets_count += 1
+                
+                # Count expiring tickets (expires within 7 days)
+                if replace_by_date_raw and replace_by_date_raw <= seven_days_from_now:
+                    expiring_tickets_count += 1
+                
+                ticket = Ticket(
+                    ticket=ticket_data["ticket_number"],
+                    legal=legal_date,
+                    expires=expires_date,
+                    place=ticket_data.get("location", "Location not available")
+                )
+                tickets.append(ticket)
+                total_tickets += 1
+                
+            except Exception as e:
+                logger.warning(f"Error processing ticket {ticket_data.get('ticket_number', 'unknown')}: {e}")
+                continue
+        
+        if tickets:
+            project = Project(
+                id=str(project_data["project_id"]),
+                name=project_data["project_name"],
+                tickets=tickets
+            )
+            new_projects.append(project)
+    
+    return {
+        "company_name": company_info.get("name", "UndergroundIQ"),
+        "projects": new_projects,
+        "total_tickets": total_tickets,
+        "new_tickets": new_tickets_count,
+        "expiring_tickets": expiring_tickets_count,
+        "report_date": f"{week_start_str} - {week_end_str}, {year}"
+    }

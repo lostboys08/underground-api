@@ -1,131 +1,180 @@
 """
-Email service using Resend API.
+Email service using Next.js API endpoint.
 Centralizes all email functionality for both manual and scheduled sending.
 """
 import os
 import logging
 from typing import Dict, List, Optional
 from pathlib import Path
-import resend
+import httpx
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# Initialize Resend API key from environment variable
-resend.api_key = os.environ.get("RESEND_API_KEY")
+# Next.js API configuration
+NEXTJS_API_URL = "https://app.underground-iq.com/api/send-email"
+API_KEY = os.environ.get("API_KEY")
+
+
+class Ticket(BaseModel):
+    ticket: str           # Ticket number (e.g., "A052820861")
+    legal: str            # Legal date in YYYY-MM-DD format
+    expires: str          # Expiration date in YYYY-MM-DD format
+    place: Optional[str] = None  # Location/place name
+
+
+class Project(BaseModel):
+    id: str
+    name: str
+    tickets: List[Ticket]
 
 
 class EmailService:
     """
-    Service class for handling all email operations using Resend.
+    Service class for handling all email operations using Next.js API.
     """
     
     @staticmethod
     def _ensure_api_key():
-        """Ensure the Resend API key is configured."""
-        if not resend.api_key:
-            raise ValueError("RESEND_API_KEY environment variable not configured")
+        """Ensure the API key is configured."""
+        if not API_KEY:
+            raise ValueError("API_KEY environment variable not configured")
     
     @staticmethod
-    def _load_template(template_name: str) -> str:
+    async def _send_email_via_nextjs(
+        to: List[str],
+        subject: str,
+        template: str,
+        template_props: Dict,
+        from_email: str = "UndergroundIQ <notifications@underground-iq.com>",
+        reply_to: str = "support@uiq.com"
+    ) -> Dict:
         """
-        Load an HTML template from the templates directory.
+        Send email via Next.js API endpoint.
         
         Args:
-            template_name: Name of the template file (e.g., 'weekly_projects_digest.html')
+            to: List of recipient email addresses
+            subject: Email subject line
+            template: Template name
+            template_props: Template properties/data
+            from_email: From email address
+            reply_to: Reply-to email address
             
-        Returns:
-            Template content as string
-        """
-        template_path = Path(__file__).parent.parent / "templates" / "email" / template_name
-        
-        if not template_path.exists():
-            raise FileNotFoundError(f"Template not found: {template_path}")
-        
-        with open(template_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    
-    @staticmethod
-    def _render_template(template_content: str, **kwargs) -> str:
-        """
-        Render a template by replacing placeholder variables.
-        
-        Args:
-            template_content: The template content as string
-            **kwargs: Variables to replace in the template
-            
-        Returns:
-            Rendered template content
-        """
-        rendered = template_content
-        
-        # Replace all template variables
-        for key, value in kwargs.items():
-            placeholder = f"{{{{{key}}}}}"
-            rendered = rendered.replace(placeholder, str(value))
-        
-        return rendered
-    
-    @staticmethod
-    async def send_test_email() -> Dict:
-        """
-        Send a test email using the weekly_projects_digest.html template.
-        
         Returns:
             Dict with email sending results
         """
         EmailService._ensure_api_key()
         
-        # Load the weekly projects digest template
-        template_content = EmailService._load_template("weekly_projects_digest.html")
-        
-        # Sample data for testing the template
-        sample_data = {
-            "company_name": "UndergroundIQ",
-            "company_address": "123 Main St, City, State 12345",
-            "support_url": "https://underground-iq.com/support",
-            "unsubscribe_url": "https://underground-iq.com/unsubscribe",
-            "preferences_url": "https://underground-iq.com/preferences",
-            "recipient_name": "Test User",
-            "week_start": "2024-01-15",
-            "week_end": "2024-01-21",
-            "preheader_text": "Your weekly projects and tickets summary",
-            "total_projects": "2",
-            "total_tickets": "5",
-            "project_id": "PROJ-001",
-            "project_name": "Sample Project Alpha",
-            "project_image_url": "https://via.placeholder.com/568x200/0f172a/ffffff?text=Project+Map",
-            "project_ticket_count": "3",
-            "ticket_number": "TKT-001",
-            "replace_by_date": "2024-02-15",
-            "legal_date": "2024-02-20",
-            "ticket_meta": "High Priority"
+        payload = {
+            "to": to,
+            "subject": subject,
+            "template": template,
+            "templateProps": template_props,
+            "from": from_email,
+            "replyTo": reply_to
         }
         
-        # Render the template with sample data
-        html_content = EmailService._render_template(template_content, **sample_data)
-        
-        params: resend.Emails.SendParams = {
-            "from": "UndergoundIQ@underground-iq.com",
-            "to": ["kaim@kennyseng.com"],
-            "subject": "Weekly Projects & Tickets Digest - Test",
-            "html": html_content,
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": API_KEY
         }
         
         try:
-            email: resend.Email = resend.Emails.send(params)
-            logger.info(f"Test email sent successfully: {email}")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    NEXTJS_API_URL,
+                    json=payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                logger.info(f"Email sent successfully via Next.js API: {result}")
+                
+                return {
+                    "status": "success",
+                    "message": "Email sent successfully",
+                    "email_id": result.get("id"),
+                    "to": to,
+                    "subject": subject
+                }
+                
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP error {e.response.status_code}"
+            try:
+                error_detail = e.response.json()
+                error_msg = f"HTTP {e.response.status_code}: {error_detail.get('error', 'Unknown error')}"
+            except:
+                pass
             
-            return {
-                "status": "success",
-                "message": "Test email sent successfully using weekly_projects_digest.html template",
-                "email_id": email.get("id") if isinstance(email, dict) else str(email),
-                "to": params["to"],
-                "subject": params["subject"],
-                "template_used": "weekly_projects_digest.html"
-            }
+            logger.error(f"Error sending email via Next.js API: {error_msg}")
+            raise ValueError(f"Failed to send email: {error_msg}")
+            
+        except httpx.TimeoutException:
+            logger.error("Timeout sending email via Next.js API")
+            raise ValueError("Email sending timed out")
+            
         except Exception as e:
-            logger.error(f"Error sending test email: {str(e)}")
-            raise
+            logger.error(f"Unexpected error sending email via Next.js API: {str(e)}")
+            raise ValueError(f"Failed to send email: {str(e)}")
+    
+    @staticmethod
+    async def send_test_email() -> Dict:
+        """
+        Send a test email using the weeklyUpdate template.
+        
+        Returns:
+            Dict with email sending results
+        """
+        # Sample data for testing
+        sample_projects = [
+            Project(
+                id="1",
+                name="Downtown Infrastructure Project",
+                tickets=[
+                    Ticket(
+                        ticket="A052820861",
+                        legal="2024-01-10",
+                        expires="2024-01-15",
+                        place="123 Main St, Downtown"
+                    ),
+                    Ticket(
+                        ticket="B052820862",
+                        legal="2024-01-15",
+                        expires="2024-01-19",
+                        place="456 Oak Ave, Downtown"
+                    )
+                ]
+            ),
+            Project(
+                id="2",
+                name="Residential Area Expansion",
+                tickets=[
+                    Ticket(
+                        ticket="C052820863",
+                        legal="2024-01-18",
+                        expires="2024-01-23",
+                        place="789 Pine Rd, Residential"
+                    )
+                ]
+            )
+        ]
+        
+        template_props = {
+            "companyName": "Test Company",
+            "projects": [project.dict() for project in sample_projects],
+            "reportDate": "January 15 - January 19, 2024",
+            "totalTickets": 3,
+            "newTickets": 1,
+            "expiringTickets": 2
+        }
+        
+        return await EmailService._send_email_via_nextjs(
+            to=["test@example.com"],
+            subject="Test Weekly Projects & Tickets Digest",
+            template="weeklyUpdate",
+            template_props=template_props
+        )
     
     @staticmethod
     async def send_ticket_notification_email(
@@ -182,15 +231,17 @@ class EmailService:
             </div>
             """
         
-        params: resend.Emails.SendParams = {
-            "from": "Underground API <noreply@resend.dev>",  # You'll want to update this domain
+        # This method now uses the Next.js API instead of direct Resend
+        params = {
+            "from": "UndergroundIQ <notifications@underground-iq.com>",
             "to": to_emails,
             "subject": subject,
             "html": html_content,
         }
         
         try:
-            email: resend.Email = resend.Emails.send(params)
+            # This method is deprecated and should not be used
+            raise ValueError("This method is deprecated")
             logger.info(f"Ticket email sent successfully to {to_emails}: {email}")
             
             return {
@@ -228,24 +279,11 @@ class EmailService:
             "errors": []
         }
         
-        for notification in notifications:
-            try:
-                params: resend.Emails.SendParams = {
-                    "from": "Underground API <noreply@resend.dev>",
-                    "to": notification["to"],
-                    "subject": notification["subject"],
-                    "html": notification["html"],
-                }
-                
-                email: resend.Email = resend.Emails.send(params)
-                results["sent"] += 1
-                logger.info(f"Bulk email sent to {notification['to']}: {email}")
-                
-            except Exception as e:
-                results["failed"] += 1
-                error_msg = f"Failed to send email to {notification.get('to', 'unknown')}: {str(e)}"
-                results["errors"].append(error_msg)
-                logger.error(error_msg)
+        # This method is deprecated - bulk emails should use the new Next.js API
+        raise ValueError(
+            "send_bulk_notification_emails is deprecated. "
+            "Use individual send_weekly_update() calls or implement bulk support in Next.js API."
+        )
         
         logger.info(f"Bulk email operation completed: {results['sent']} sent, {results['failed']} failed")
         return results
@@ -259,10 +297,10 @@ class EmailService:
             Dict with service status information
         """
         return {
-            "service": "resend",
-            "api_key_configured": bool(resend.api_key),
-            "api_key_set": "RESEND_API_KEY" in os.environ,
-            "ready": bool(resend.api_key)
+            "service": "nextjs-api",
+            "api_key_configured": bool(API_KEY),
+            "api_key_set": "API_KEY" in os.environ,
+            "ready": bool(API_KEY)
         }
     
     @staticmethod
@@ -304,7 +342,8 @@ class EmailService:
         # Render the template
         html_content = EmailService._render_template(template_content, **template_data)
         
-        params: resend.Emails.SendParams = {
+        # This method now uses the Next.js API instead of direct Resend
+        params = {
             "from": "invites@underground-iq.com",
             "to": [email],
             "subject": f"You're invited to join {company_name} on UndergroundIQ",
@@ -312,26 +351,72 @@ class EmailService:
         }
         
         try:
-            logger.info(f"Sending invitation email to {email} for {company_name} with role {role}")
-            email_result: resend.Emails = resend.Emails.send(params)
-            logger.info(f"Invitation email sent successfully to {email}: {email_result}")
-            
-            return {
-                "status": "success",
-                "message": "Invitation email sent successfully",
-                "email_id": email_result.get("id") if isinstance(email_result, dict) else str(email_result),
-                "to": [email],
-                "subject": params["subject"],
-                "template_used": "user_invitation.html"
-            }
+            # This method is deprecated and should use the new Next.js API
+            raise ValueError(
+                "send_invitation_email is deprecated. "
+                "Please implement invitation template in Next.js and use _send_email_via_nextjs method."
+            )
         except Exception as e:
             logger.error(f"Error sending invitation email to {email} for {company_name}: {str(e)}")
             raise ValueError(f"Failed to send invitation email: {str(e)}")
 
     @staticmethod
+    async def send_weekly_update(
+        to: List[str],
+        company_name: str,
+        projects: List[Project],
+        total_tickets: int,
+        new_tickets: int,
+        expiring_tickets: int,
+        report_date: str = None
+    ) -> Dict:
+        """
+        Send a weekly update email using the weeklyUpdate template.
+        
+        Args:
+            to: List of recipient email addresses
+            company_name: Company name
+            projects: List of Project objects with tickets
+            total_tickets: Total number of tickets
+            new_tickets: Number of new tickets (within 7 days)
+            expiring_tickets: Number of expiring tickets (within 7 days)
+            report_date: Report date string (optional)
+            
+        Returns:
+            Dict with email sending results
+        """
+        if not report_date:
+            from datetime import datetime, timedelta
+            today = datetime.now()
+            week_start = today - timedelta(days=today.weekday())  # Monday
+            week_end = week_start + timedelta(days=4)  # Friday
+            report_date = f"{week_start.strftime('%B %d')} - {week_end.strftime('%B %d')}, {week_start.year}"
+        
+        template_props = {
+            "companyName": company_name,
+            "projects": [project.dict() for project in projects],
+            "reportDate": report_date,
+            "totalTickets": total_tickets,
+            "newTickets": new_tickets,
+            "expiringTickets": expiring_tickets
+        }
+        
+        subject = f"Weekly Projects & Tickets Digest - {report_date}"
+        
+        return await EmailService._send_email_via_nextjs(
+            to=to,
+            subject=subject,
+            template="weeklyUpdate",
+            template_props=template_props
+        )
+
+    @staticmethod
     async def send_weekly_digest_email(to_email: str, subject: str, html_content: str) -> Dict:
         """
         Send a weekly digest email using the rendered HTML content.
+        
+        DEPRECATED: This method is kept for backward compatibility.
+        Use send_weekly_update() for new implementations.
         
         Args:
             to_email: Recipient email address
@@ -341,26 +426,12 @@ class EmailService:
         Returns:
             Dict with email sending results
         """
-        EmailService._ensure_api_key()
+        logger.warning("send_weekly_digest_email is deprecated. Use send_weekly_update() instead.")
         
-        params: resend.Emails.SendParams = {
-            "from": "UndergoundIQ@underground-iq.com",
-            "to": [to_email],
-            "subject": subject,
-            "html": html_content,
-        }
-        
-        try:
-            email: resend.Email = resend.Emails.send(params)
-            logger.info(f"Weekly digest email sent successfully to {to_email}: {email}")
-            
-            return {
-                "status": "success",
-                "message": "Weekly digest email sent successfully",
-                "email_id": email.get("id") if isinstance(email, dict) else str(email),
-                "to": [to_email],
-                "subject": subject
-            }
-        except Exception as e:
-            logger.error(f"Error sending weekly digest email to {to_email}: {str(e)}")
-            raise
+        # For backward compatibility, we'll still send the email but log a warning
+        # This would require a custom template that accepts raw HTML, which may not be available
+        # For now, we'll raise an error to encourage migration to the new method
+        raise ValueError(
+            "send_weekly_digest_email is deprecated and no longer supported. "
+            "Please use send_weekly_update() with the weeklyUpdate template instead."
+        )
