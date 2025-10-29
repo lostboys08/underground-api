@@ -9,47 +9,14 @@ import logging
 import sys
 from datetime import datetime
 
-# Configure logging with explicit handlers for Railway
-
-# Create a custom formatter that ensures proper log level handling
-class RailwayFormatter(logging.Formatter):
-    """Custom formatter to ensure Railway correctly interprets log levels"""
-    
-    def __init__(self, *args, **kwargs):
-        # Remove any uvicorn-specific kwargs that logging.Formatter doesn't understand
-        kwargs.pop('use_colors', None)
-        kwargs.pop('fmt', None)  # Use 'format' instead of 'fmt'
-        
-        # Extract format string if provided as 'fmt'
-        format_string = kwargs.pop('format', '%(asctime)s - %(name)s - %(message)s')
-        
-        # Call parent constructor with cleaned kwargs
-        super().__init__(fmt=format_string, *args, **kwargs)
-    
-    def format(self, record):
-        # Ensure the log level is clearly indicated
-        formatted = super().format(record)
-        # Add explicit level prefix for Railway parsing
-        level_prefix = f"[{record.levelname}]"
-        return f"{level_prefix} {formatted}"
-
-# Configure logging with custom formatter
+# Configure logging with standard format for Railway
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(message)s',  # Removed %(levelname)s since RailwayFormatter adds it as prefix
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    stream=sys.stdout,  # Explicitly use stdout instead of stderr
-    force=True  # Override any existing configuration
+    stream=sys.stdout,
+    force=True
 )
-
-# Apply custom formatter to root logger
-root_logger = logging.getLogger()
-if root_logger.handlers:
-    for handler in root_logger.handlers:
-        handler.setFormatter(RailwayFormatter(
-            '%(asctime)s - %(name)s - %(message)s',  # Removed %(levelname)s since RailwayFormatter adds it as prefix
-            datefmt='%Y-%m-%d %H:%M:%S'
-        ))
 logger = logging.getLogger(__name__)
 
 def install_playwright():
@@ -152,65 +119,13 @@ def main():
         
         logger.info(f"Starting server on {host}:{port}")
         
-        # Create a custom log config for uvicorn that uses our formatter
-        log_config = {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "default": {
-                    "()": "startup.RailwayFormatter",
-                    "format": "%(asctime)s - %(name)s - %(message)s",
-                    "datefmt": "%Y-%m-%d %H:%M:%S",
-                },
-                "access": {
-                    "()": "startup.RailwayFormatter", 
-                    "format": "%(asctime)s - %(name)s - %(message)s",
-                    "datefmt": "%Y-%m-%d %H:%M:%S",
-                },
-            },
-            "handlers": {
-                "default": {
-                    "formatter": "default",
-                    "class": "logging.StreamHandler",
-                    "stream": "ext://sys.stdout",
-                },
-                "access": {
-                    "formatter": "access",
-                    "class": "logging.StreamHandler",
-                    "stream": "ext://sys.stdout",
-                },
-            },
-            "root": {
-                "level": "INFO",
-                "handlers": ["default"],
-            },
-            "loggers": {
-                "uvicorn": {
-                    "handlers": ["default"],
-                    "level": "INFO",
-                    "propagate": False,
-                },
-                "uvicorn.error": {
-                    "handlers": ["default"],
-                    "level": "INFO",
-                    "propagate": False,
-                },
-                "uvicorn.access": {
-                    "handlers": ["access"],
-                    "level": "INFO",
-                    "propagate": False,
-                },
-            },
-        }
-        
-        # Start the server with our custom logging configuration
+        # Start the server with standard logging configuration
         uvicorn.run(
             app,
             host=host,
             port=port,
             log_level="info",
             access_log=True,
-            log_config=log_config,
             use_colors=False  # Disable colors for Railway
         )
         

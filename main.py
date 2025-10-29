@@ -5,36 +5,12 @@ import os
 import logging
 from utils.auth import check_api_key_middleware
 
-# Configure logging with proper formatting for Railway
-import sys
-
-# Create a custom formatter that ensures proper log level handling
-class RailwayFormatter(logging.Formatter):
-    """Custom formatter to ensure Railway correctly interprets log levels"""
-    
-    def format(self, record):
-        # Ensure the log level is clearly indicated
-        formatted = super().format(record)
-        # Add explicit level prefix for Railway parsing
-        level_prefix = f"[{record.levelname}]"
-        return f"{level_prefix} {formatted}"
-
+# Configure logging with standard format for Railway
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(message)s',  # Removed %(levelname)s since RailwayFormatter adds it as prefix
-    datefmt='%Y-%m-%d %H:%M:%S',
-    stream=sys.stdout,  # Explicitly use stdout instead of stderr
-    force=True  # Override any existing configuration
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
-
-# Apply custom formatter to root logger
-root_logger = logging.getLogger()
-if root_logger.handlers:
-    for handler in root_logger.handlers:
-        handler.setFormatter(RailwayFormatter(
-            '%(asctime)s - %(name)s - %(message)s',  # Removed %(levelname)s since RailwayFormatter adds it as prefix
-            datefmt='%Y-%m-%d %H:%M:%S'
-        ))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Underground API", version="1.0.0")
