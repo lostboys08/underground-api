@@ -15,6 +15,17 @@ from datetime import datetime
 class RailwayFormatter(logging.Formatter):
     """Custom formatter to ensure Railway correctly interprets log levels"""
     
+    def __init__(self, *args, **kwargs):
+        # Remove any uvicorn-specific kwargs that logging.Formatter doesn't understand
+        kwargs.pop('use_colors', None)
+        kwargs.pop('fmt', None)  # Use 'format' instead of 'fmt'
+        
+        # Extract format string if provided as 'fmt'
+        format_string = kwargs.pop('format', '%(asctime)s - %(name)s - %(message)s')
+        
+        # Call parent constructor with cleaned kwargs
+        super().__init__(fmt=format_string, *args, **kwargs)
+    
     def format(self, record):
         # Ensure the log level is clearly indicated
         formatted = super().format(record)
@@ -148,12 +159,12 @@ def main():
             "formatters": {
                 "default": {
                     "()": "startup.RailwayFormatter",
-                    "fmt": "%(asctime)s - %(name)s - %(message)s",
+                    "format": "%(asctime)s - %(name)s - %(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
                 "access": {
                     "()": "startup.RailwayFormatter", 
-                    "fmt": "%(asctime)s - %(name)s - %(message)s",
+                    "format": "%(asctime)s - %(name)s - %(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
             },
