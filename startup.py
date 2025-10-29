@@ -146,36 +146,46 @@ def main():
             "version": 1,
             "disable_existing_loggers": False,
             "formatters": {
-                "railway": {
+                "default": {
                     "()": "startup.RailwayFormatter",
+                    "fmt": "%(asctime)s - %(name)s - %(message)s",
+                    "datefmt": "%Y-%m-%d %H:%M:%S",
+                },
+                "access": {
+                    "()": "startup.RailwayFormatter", 
                     "fmt": "%(asctime)s - %(name)s - %(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
             },
             "handlers": {
-                "railway": {
-                    "formatter": "railway",
+                "default": {
+                    "formatter": "default",
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                },
+                "access": {
+                    "formatter": "access",
                     "class": "logging.StreamHandler",
                     "stream": "ext://sys.stdout",
                 },
             },
             "root": {
                 "level": "INFO",
-                "handlers": ["railway"],
+                "handlers": ["default"],
             },
             "loggers": {
                 "uvicorn": {
-                    "handlers": ["railway"],
+                    "handlers": ["default"],
                     "level": "INFO",
                     "propagate": False,
                 },
                 "uvicorn.error": {
-                    "handlers": ["railway"],
+                    "handlers": ["default"],
                     "level": "INFO",
                     "propagate": False,
                 },
                 "uvicorn.access": {
-                    "handlers": ["railway"],
+                    "handlers": ["access"],
                     "level": "INFO",
                     "propagate": False,
                 },
