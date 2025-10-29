@@ -85,29 +85,8 @@ async def api_key_middleware(request: Request, call_next):
 # Include routers with error handling
 routers_loaded = []
 
-try:
-    from routes.pdf_generator import router as pdf_router
-    app.include_router(pdf_router)
-    routers_loaded.append("PDF Generator")
-    logger.info("PDF Generator router loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load PDF Generator router: {e}")
 
-try:
-    from routes.profiles import router as profiles_router
-    app.include_router(profiles_router)
-    routers_loaded.append("User Profiles")
-    logger.info("User Profiles router loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load User Profiles router: {e}")
 
-try:
-    from routes.companies import router as companies_router
-    app.include_router(companies_router)
-    routers_loaded.append("Companies")
-    logger.info("Companies router loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load Companies router: {e}")
 
 try:
     from routes.tickets import router as tickets_router
@@ -125,13 +104,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to load Cron Jobs router: {e}")
 
-try:
-    from routes.emails import router as emails_router
-    app.include_router(emails_router)
-    routers_loaded.append("Emails")
-    logger.info("Emails router loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load Emails router: {e}")
 
 @app.get("/")
 async def root():
@@ -142,12 +114,8 @@ async def root():
         "available_endpoints": {
             "docs": "/docs",
             "health": "/health", 
-            "pdf_generation": "/pdf/generate" if "PDF Generator" in routers_loaded else "unavailable",
-            "user_profiles": "/profiles/" if "User Profiles" in routers_loaded else "unavailable",
-            "companies": "/companies/" if "Companies" in routers_loaded else "unavailable",
             "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable",
-            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable",
-            "emails": "/emails/" if "Emails" in routers_loaded else "unavailable"
+            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable"
         },
         "authentication": {
             "type": "API Key",

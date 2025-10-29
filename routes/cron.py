@@ -7,7 +7,7 @@ from typing import Optional
 import os
 import logging
 from datetime import datetime
-from tasks.jobs import sync_bluestakes_tickets, refresh_todo_table, send_ticket_emails, sync_updateable_tickets, send_notification_emails, send_weekly_project_digest
+from tasks.jobs import sync_bluestakes_tickets, sync_updateable_tickets, send_weekly_project_digest
 
 logger = logging.getLogger(__name__)
 
@@ -85,149 +85,12 @@ async def daily_update(
     }
 
 
-@cron_router.post("/sync-bluestakes")
-async def sync_bluestakes_cron(
-    background_tasks: BackgroundTasks,
-    x_cron_secret: Optional[str] = Header(None),
-    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
-    days_back: int = Query(default=28, description="Number of days to look back for tickets")
-):
-    """
-    Flexible BlueStakes sync job with parameters.
-    
-    This endpoint allows more control over the sync process and can be used
-    for both scheduled daily syncs and on-demand company-specific syncs.
-    
-    Headers:
-        X-CRON-SECRET: Secret key for cron job authentication
-        
-    Query Parameters:
-        company_id: Optional company ID to sync (syncs all if not provided)
-        days_back: Number of days to look back (1-365, default 28)
-       
-        
-    Returns:
-        JSON response indicating the job was queued successfully
-    """
-    verify_cron_secret(x_cron_secret)
-    
-    # Validate parameters
-    if days_back < 1 or days_back > 365:
-        raise HTTPException(
-            status_code=400,
-            detail="days_back must be between 1 and 365"
-        )
-    
-    if company_id:
-        logger.info(f"BlueStakes sync cron job triggered for company {company_id} ({days_back} days)")
-    else:
-        logger.info(f"BlueStakes sync cron job triggered for all companies ({days_back} days)")
-    
-    # Add the job to background tasks with parameters
-    background_tasks.add_task(sync_bluestakes_tickets, company_id, days_back)
-    
-    return {
-        "status": "success",
-        "message": "BlueStakes sync job queued successfully",
-        "job": "sync_bluestakes_tickets",
-        "parameters": {
-            "company_id": company_id,
-            "days_back": days_back
-        }
-    }
 
 
-@cron_router.post("/refresh-todo")
-async def refresh_todo(
-    background_tasks: BackgroundTasks,
-    x_cron_secret: Optional[str] = Header(None)
-):
-    """
-    Refresh todo table job.
-    
-    This endpoint should be called periodically to refresh and maintain
-    the todo table data integrity.
-    
-    Headers:
-        X-CRON-SECRET: Secret key for cron job authentication
-        
-    Returns:
-        JSON response indicating the job was queued successfully
-    """
-    verify_cron_secret(x_cron_secret)
-    
-    logger.info("Refresh todo cron job triggered")
-    
-    # Add the job to background tasks so we can respond immediately
-    background_tasks.add_task(refresh_todo_table)
-    
-    return {
-        "status": "success",
-        "message": "Todo refresh job queued successfully",
-        "job": "refresh_todo_table"
-    }
 
 
-@cron_router.post("/send-emails")
-async def send_emails(
-    background_tasks: BackgroundTasks,
-    x_cron_secret: Optional[str] = Header(None)
-):
-    """
-    Send ticket emails job.
-    
-    This endpoint should be called periodically to send ticket-related
-    email notifications and reports.
-    
-    Headers:
-        X-CRON-SECRET: Secret key for cron job authentication
-        
-    Returns:
-        JSON response indicating the job was queued successfully
-    """
-    verify_cron_secret(x_cron_secret)
-    
-    logger.info("Send emails cron job triggered")
-    
-    # Add the job to background tasks so we can respond immediately
-    background_tasks.add_task(send_ticket_emails)
-    
-    return {
-        "status": "success",
-        "message": "Email sending job queued successfully",
-        "job": "send_ticket_emails"
-    }
 
 
-@cron_router.post("/send-notifications")
-async def send_notifications(
-    background_tasks: BackgroundTasks,
-    x_cron_secret: Optional[str] = Header(None)
-):
-    """
-    Send notification emails job.
-    
-    This endpoint should be called periodically to send general notification
-    emails (not just ticket-related ones).
-    
-    Headers:
-        X-CRON-SECRET: Secret key for cron job authentication
-        
-    Returns:
-        JSON response indicating the job was queued successfully
-    """
-    verify_cron_secret(x_cron_secret)
-    
-    logger.info("Send notifications cron job triggered")
-    
-    # Add the job to background tasks so we can respond immediately
-    background_tasks.add_task(send_notification_emails)
-    
-    return {
-        "status": "success",
-        "message": "Notification sending job queued successfully",
-        "job": "send_notification_emails"
-    }
 
 
 @cron_router.post("/sync-updatable-tickets")

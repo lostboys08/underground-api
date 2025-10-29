@@ -18,18 +18,8 @@ try:
 except ImportError as e:
     logging.warning(f"Ticket update service unavailable: {e}")
     TICKET_UPDATE_AVAILABLE = False
-
-# Import job functions with graceful error handling
-try:
-    from tasks.jobs import sync_bluestakes_tickets as job_sync_bluestakes_tickets
-    JOB_SYNC_AVAILABLE = True
-    logging.info("Job sync function loaded successfully")
-except ImportError as e:
-    import_error_msg = str(e)
-    logging.warning(f"Job sync function unavailable: {e}")
-    JOB_SYNC_AVAILABLE = False
     
-    # Create dummy classes and functions for graceful handling
+    # Create dummy class for graceful handling when service unavailable
     class TicketUpdateResult:
         def __init__(self, success: bool, message: str, details: str = None):
             self.success = success
@@ -41,18 +31,11 @@ except ImportError as e:
         return TicketUpdateResult(
             success=False,
             message="Ticket update service unavailable",
-            details=f"Service import failed: {import_error_msg}"
+            details="Service import failed"
         )
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
-# Import BlueStakes API utilities
-from utils.bluestakes import (
-    get_bluestakes_auth_token, 
-    search_bluestakes_tickets, 
-    transform_bluestakes_ticket_to_project_ticket,
-    ProjectTicketCreate as BlueStakesProjectTicketCreate
-)
 
 @router.post("/store-credentials/{company_id}")
 async def store_bluestakes_credentials(
@@ -118,139 +101,11 @@ class ProjectTicketCreate(BaseModel):
     legal_date: Optional[datetime] = None
     company_id: int = 1  # Default to 1 for now
 
-class ProjectTicketResponse(BaseModel):
-    id: int
-    project_id: Optional[int]
-    ticket_number: str
-    replace_by_date: datetime
-    old_ticket: Optional[str]
-    is_continue_update: bool
-    legal_date: Optional[datetime]
-    company_id: int
-
-class BlueStakesSearchRequest(BaseModel):
-    company_id: Optional[int] = 1  # Default to company 1 for now
-    limit: Optional[int] = 10  # Limit to first 10 tickets
-    offset: Optional[int] = 0
-    # Add search parameters from the image
-    sort: Optional[str] = None
-    start: Optional[str] = None  # Start date
-    end: Optional[str] = None    # End date
-    state: Optional[str] = None  # Work area state
-    county: Optional[str] = None # Work area county
-
-@router.delete("/{ticket_id}")
-async def delete_ticket(ticket_id: int):
-    """
-    Delete a ticket by ID
-    """
-    try:
-        result = get_service_client().table("tickets").delete().eq("id", ticket_id).execute()
-        
-        if not result.data:
-            raise HTTPException(status_code=404, detail="Ticket not found")
-        
-        return {"message": f"Ticket {ticket_id} deleted successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"Error deleting ticket {ticket_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # BlueStakes API helper functions moved to utils/bluestakes.py to avoid circular imports
 
 
 
-@router.post("/sync", response_model=List[ProjectTicketResponse])
-async def sync_bluestakes_tickets(
-    search_request: BlueStakesSearchRequest,
-    user_id: str = Query(..., description="User UUID for authentication")
-):
-    """
-    Sync BlueStakes tickets and insert them into the project_tickets table
-    Gets company BlueStakes credentials and fetches first 10 tickets by default
-    """
-    try:
-        company_id = search_request.company_id or 1
-        
-        # Get company's BlueStakes credentials
-        company_result = (get_service_client().table("companies")
-                         .select("bluestakes_username, bluestakes_password")
-                         .eq("id", company_id)
-                         .execute())
-        
-        if not company_result.data:
-            raise HTTPException(status_code=404, detail=f"Company {company_id} not found")
-        
-        company = company_result.data[0]
-        username = company.get("bluestakes_username")
-        password = company.get("bluestakes_password")
-        
-        if not username or not password:
-            raise HTTPException(
-                status_code=400, 
-                detail="Company does not have BlueStakes credentials configured"
-            )
-        
-        # Get BlueStakes auth token
-        token = await get_bluestakes_auth_token(username, password)
-        
-        # Prepare search parameters
-        search_params = {
-            "limit": search_request.limit or 10,
-            "start": search_request.start,
-            "end": search_request.end
-        }
-        
-        # Search tickets from BlueStakes
-        bluestakes_response = await search_bluestakes_tickets(token, search_params)
-        
-        # Process the response - handle the nested structure shown in the example
-        inserted_tickets = []
-        
-        if isinstance(bluestakes_response, list) and len(bluestakes_response) > 0:
-            # Handle the structure: [{"count": 0, "total": 0, "data": [...]}]
-            for response_item in bluestakes_response:
-                if isinstance(response_item, dict) and "data" in response_item and isinstance(response_item.get("data"), list):
-                    for ticket_data in response_item.get("data", []):
-                        if isinstance(ticket_data, dict):
-                            try:
-                                # Transform BlueStakes ticket to project ticket
-                                project_ticket = transform_bluestakes_ticket_to_project_ticket(
-                                    ticket_data, company_id
-                                )
-                                
-                                # Insert into database
-                                insert_data = {
-                                    "project_id": project_ticket.project_id,
-                                    "ticket_number": project_ticket.ticket_number,
-                                    "replace_by_date": project_ticket.replace_by_date.isoformat(),
-                                    "old_ticket": project_ticket.old_ticket,
-                                    "is_continue_update": project_ticket.is_continue_update,
-                                    "legal_date": project_ticket.legal_date.isoformat() if project_ticket.legal_date else None,
-                                    "company_id": project_ticket.company_id
-                                }
-                                
-                                # Insert with conflict handling (upsert on ticket_number)
-                                result = (get_service_client().table("project_tickets")
-                                         .upsert(insert_data, on_conflict="ticket_number")
-                                         .execute())
-                                
-                                if result.data:
-                                    inserted_tickets.extend([ProjectTicketResponse(**ticket) for ticket in result.data])
-                                    
-                            except Exception as e:
-                                logging.error(f"Error processing ticket {ticket_data.get('ticket', 'unknown')}: {str(e)}")
-                                continue
-        
-        return inserted_tickets
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"Error in search_and_insert_bluestakes_tickets: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/update", response_model=TicketUpdateResponse)
 async def update_ticket(request: TicketUpdateRequest):
@@ -363,114 +218,6 @@ async def update_ticket(request: TicketUpdateRequest):
         )
 
 
-class SyncStatsResponse(BaseModel):
-    companies_processed: int
-    companies_failed: int
-    tickets_added: int
-    tickets_skipped: int
-    tickets_linked: Optional[int] = 0
-    errors: List[str]
-
-class UpdatableTicketCreate(BaseModel):
-    ticket_number: str
-
-class UpdatableTicketResponse(BaseModel):
-    id: int
-    ticket_number: str
-    created_at: datetime
-
-class UpdatableTicketsStatsResponse(BaseModel):
-    companies_processed: int
-    companies_failed: int
-    tickets_processed: int
-    tickets_checked: int
-    tickets_added: int
-    api_failures: int
-    errors: List[str]
 
 
-@router.post("/sync-job", response_model=SyncStatsResponse)
-async def sync_bluestakes_tickets_job(
-    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
-    days_back: int = Query(default=28, description="Number of days to look back for tickets")
-):
-    """
-    Sync BlueStakes tickets using the background job function.
-    Can sync all companies or a specific company.
-    Uses 28-day lookback by default for new company onboarding.
-    """
-    try:
-        # Check if job sync function is available
-        if not JOB_SYNC_AVAILABLE:
-            raise HTTPException(
-                status_code=503,
-                detail="Job sync function is currently unavailable"
-            )
-        
-        # Validate parameters
-        if days_back < 1 or days_back > 365:
-            raise HTTPException(
-                status_code=400,
-                detail="days_back must be between 1 and 365"
-            )
-        
-        # Call the job function
-        if company_id:
-            logging.info(f"Starting sync for company {company_id} (last {days_back} days)")
-        else:
-            logging.info(f"Starting sync for all companies (last {days_back} days)")
-        
-        sync_stats = await job_sync_bluestakes_tickets(
-            company_id=company_id,
-            days_back=days_back
-        )
-        
-        return SyncStatsResponse(**sync_stats)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_msg = f"Error in sync job: {str(e)}"
-        logging.error(error_msg)
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
-        )
 
-
-@router.post("/sync-updatable-tickets", response_model=UpdatableTicketsStatsResponse)
-async def sync_updateable_tickets_job(
-    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies")
-):
-    """
-    Manually trigger updateable tickets sync job.
-    
-    This endpoint allows manual triggering of the updateable tickets sync process
-    for testing or on-demand synchronization.
-    
-    Query Parameters:
-        company_id: Optional company ID to sync (syncs all if not provided)
-        
-    Returns:
-        UpdateableTicketsStatsResponse with sync statistics
-    """
-    try:
-        # Import here to avoid circular imports
-        from tasks.jobs import sync_updateable_tickets as job_sync_updateable_tickets
-        
-        if company_id:
-            logging.info(f"Starting manual updateable tickets sync for company {company_id}")
-        else:
-            logging.info("Starting manual updateable tickets sync for all companies")
-        
-        sync_stats = await job_sync_updateable_tickets(company_id=company_id)
-        
-        return UpdatableTicketsStatsResponse(**sync_stats)
-        
-    except Exception as e:
-        error_msg = f"Error in updateable tickets sync job: {str(e)}"
-        logging.error(error_msg)
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
-        ) 
