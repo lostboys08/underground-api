@@ -32,23 +32,6 @@ def get_service_client() -> Client:
         _supabase_client = get_supabase_client()
     return _supabase_client
 
-def get_anon_client() -> Client:
-    """Get anonymous client (for now, just return the service client)"""
-    return get_service_client()
-
-def get_user_client(jwt_token: str) -> Client:
-    """Get a client authenticated with user's JWT token"""
-    url = os.environ.get("SUPABASE_URL")
-    anon_key = os.environ.get("SUPABASE_ANON_KEY")
-    
-    if not url or not anon_key:
-        raise ValueError("Missing SUPABASE_URL or SUPABASE_ANON_KEY for user authentication")
-    
-    client = create_client(url, anon_key)
-    # Set the user session
-    client.auth.set_session(access_token=jwt_token, refresh_token="")
-    return client
-
 # Legacy compatibility
 def get_supabase_config():
     """Legacy compatibility - returns a simple object with is_configured method"""

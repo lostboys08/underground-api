@@ -85,14 +85,6 @@ async def daily_update(
     }
 
 
-
-
-
-
-
-
-
-
 @cron_router.post("/sync-updatable-tickets")
 async def sync_updatable_tickets_cron(
     background_tasks: BackgroundTasks,

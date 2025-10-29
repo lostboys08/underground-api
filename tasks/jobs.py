@@ -587,7 +587,6 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
     
     # Debug logging to see what we got from BlueStakes API
     logger.info(f"BlueStakes API response type: {type(bluestakes_response)}")
-    logger.info(f"BlueStakes API response: {bluestakes_response}")
     
     # Step 3: Process tickets
     if isinstance(bluestakes_response, list):
@@ -830,115 +829,6 @@ async def update_old_ticket_continue_status(old_ticket_number: str, company_id: 
     except Exception as e:
         logger.error(f"Error updating old ticket {old_ticket_number} continue status: {str(e)}")
         raise
-
-
-async def refresh_todo_table():
-    """
-    Placeholder function to refresh todo table.
-    This will contain logic to update or refresh todo-related data.
-    """
-    logger.info("Starting todo table refresh job")
-    # TODO: Implement todo table refresh logic
-    # This would typically:
-    # 1. Clean up old/completed todos
-    # 2. Update todo priorities
-    # 3. Refresh computed fields
-    # 4. Maintain data integrity
-    logger.info("Todo table refresh job completed")
-
-
-async def send_ticket_emails():
-    """
-    Send ticket-related emails for scheduled cron job.
-    This function identifies tickets requiring notifications and sends appropriate emails.
-    """
-    logger.info("Starting ticket email sending job")
-    
-    try:
-        from services.email_service import EmailService
-        
-        # 1. Identify tickets requiring email notifications
-        # For now, we'll send a test email to demonstrate the functionality
-        # In a real implementation, you would:
-        # - Query the database for tickets with specific criteria
-        # - Find users assigned to those tickets
-        # - Generate appropriate email content for each ticket
-        
-        # Example: Send a test ticket notification
-        test_result = await EmailService.send_test_email()
-        logger.info(f"Test email sent from cron job: {test_result}")
-        
-        # TODO: Implement actual ticket email logic
-        # Example implementation would look like:
-        # tickets = await get_tickets_requiring_notifications()
-        # for ticket in tickets:
-        #     users = await get_assigned_users_for_ticket(ticket['id'])
-        #     for user in users:
-        #         await EmailService.send_ticket_notification_email(
-        #             to_emails=[user['email']],
-        #             ticket_number=ticket['ticket_number'],
-        #             ticket_details=ticket,
-        #             email_type="notification"
-        #         )
-        
-        logger.info("Ticket email sending job completed successfully")
-        return {
-            "status": "completed",
-            "message": "Ticket email job processed",
-            "emails_sent": 1,  # In real implementation, count actual emails sent
-            "test_result": test_result
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in ticket email sending job: {str(e)}")
-        return {
-            "status": "failed",
-            "error": str(e),
-            "message": "Ticket email job failed"
-        }
-
-
-async def send_notification_emails():
-    """
-    Send general notification emails for scheduled cron job.
-    This function handles non-ticket-specific notifications.
-    """
-    logger.info("Starting notification email sending job")
-    
-    try:
-        from services.email_service import EmailService
-        
-        # TODO: Implement actual notification email logic
-        # This would typically:
-        # 1. Query database for pending notifications
-        # 2. Generate email content based on notification type  
-        # 3. Send emails using email service
-        # 4. Update notification status in database
-        # 5. Log email delivery status
-        
-        # For now, demonstrate functionality with a test email
-        test_result = await EmailService.send_test_email()
-        logger.info(f"Test notification email sent from cron job: {test_result}")
-        
-        timestamp = datetime.utcnow().isoformat()
-        logger.info(f"Notification email job completed at {timestamp}")
-        
-        return {
-            "status": "completed",
-            "timestamp": timestamp,
-            "message": "Notification email job processed",
-            "emails_sent": 1,  # In real implementation, count actual emails sent
-            "test_result": test_result
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in notification email sending job: {str(e)}")
-        return {
-            "status": "failed",
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat(),
-            "message": "Notification email job failed"
-        }
 
 
 async def send_weekly_project_digest():
