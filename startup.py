@@ -141,13 +141,56 @@ def main():
         
         logger.info(f"Starting server on {host}:{port}")
         
-        # Start the server
+        # Create a custom log config for uvicorn that uses our formatter
+        log_config = {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "railway": {
+                    "()": "startup.RailwayFormatter",
+                    "fmt": "%(asctime)s - %(name)s - %(message)s",
+                    "datefmt": "%Y-%m-%d %H:%M:%S",
+                },
+            },
+            "handlers": {
+                "railway": {
+                    "formatter": "railway",
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                },
+            },
+            "root": {
+                "level": "INFO",
+                "handlers": ["railway"],
+            },
+            "loggers": {
+                "uvicorn": {
+                    "handlers": ["railway"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+                "uvicorn.error": {
+                    "handlers": ["railway"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+                "uvicorn.access": {
+                    "handlers": ["railway"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+            },
+        }
+        
+        # Start the server with our custom logging configuration
         uvicorn.run(
             app,
             host=host,
             port=port,
             log_level="info",
-            access_log=True
+            access_log=True,
+            log_config=log_config,
+            use_colors=False  # Disable colors for Railway
         )
         
     except Exception as e:
