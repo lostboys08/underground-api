@@ -458,32 +458,35 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                    f"{sync_stats.get('old_tickets_updated', 0)} old tickets updated.")
         
         # Send webhook notification with results
-        webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
-        webhook_data = {
-            "job_type": "daily_bluestakes_sync",
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "completed",
-            "results": sync_stats,
-            "summary": {
-                "companies_processed": sync_stats['companies_processed'],
-                "companies_failed": sync_stats['companies_failed'],
-                "tickets_added": sync_stats['tickets_added'],
-                "tickets_skipped": sync_stats['tickets_skipped'],
-                "tickets_linked": sync_stats.get('tickets_linked', 0),
-                "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
-                "total_errors": len(sync_stats.get('errors', []))
-            }
-        }
+        # TODO: Uncomment when mitchellhub.org webhook server is back online
+        # webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
+        # webhook_data = {
+        #     "job_type": "daily_bluestakes_sync",
+        #     "timestamp": datetime.utcnow().isoformat(),
+        #     "status": "completed",
+        #     "results": sync_stats,
+        #     "summary": {
+        #         "companies_processed": sync_stats['companies_processed'],
+        #         "companies_failed": sync_stats['companies_failed'],
+        #         "tickets_added": sync_stats['tickets_added'],
+        #         "tickets_skipped": sync_stats['tickets_skipped'],
+        #         "tickets_linked": sync_stats.get('tickets_linked', 0),
+        #         "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
+        #         "total_errors": len(sync_stats.get('errors', []))
+        #     }
+        # }
+        # 
+        # # Send webhook (don't fail the job if webhook fails)
+        # try:
+        #     webhook_success = await send_webhook(webhook_url, webhook_data)
+        #     if webhook_success:
+        #         logger.info("Webhook notification sent successfully")
+        #     else:
+        #         logger.warning("Failed to send webhook notification")
+        # except Exception as e:
+        #     logger.error(f"Error sending webhook notification: {str(e)}")
         
-        # Send webhook (don't fail the job if webhook fails)
-        try:
-            webhook_success = await send_webhook(webhook_url, webhook_data)
-            if webhook_success:
-                logger.info("Webhook notification sent successfully")
-            else:
-                logger.warning("Failed to send webhook notification")
-        except Exception as e:
-            logger.error(f"Error sending webhook notification: {str(e)}")
+        logger.info("Webhook notifications temporarily disabled - mitchellhub.org server down")
         
         return sync_stats
         
@@ -492,30 +495,33 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         sync_stats["errors"].append(f"Critical error: {str(e)}")
         
         # Send webhook notification for failed job
-        webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
-        webhook_data = {
-            "job_type": "daily_bluestakes_sync",
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "failed",
-            "error": str(e),
-            "results": sync_stats,
-            "summary": {
-                "companies_processed": sync_stats['companies_processed'],
-                "companies_failed": sync_stats['companies_failed'],
-                "tickets_added": sync_stats['tickets_added'],
-                "tickets_skipped": sync_stats['tickets_skipped'],
-                "tickets_linked": sync_stats.get('tickets_linked', 0),
-                "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
-                "total_errors": len(sync_stats.get('errors', []))
-            }
-        }
+        # TODO: Uncomment when mitchellhub.org webhook server is back online
+        # webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
+        # webhook_data = {
+        #     "job_type": "daily_bluestakes_sync",
+        #     "timestamp": datetime.utcnow().isoformat(),
+        #     "status": "failed",
+        #     "error": str(e),
+        #     "results": sync_stats,
+        #     "summary": {
+        #         "companies_processed": sync_stats['companies_processed'],
+        #         "companies_failed": sync_stats['companies_failed'],
+        #         "tickets_added": sync_stats['tickets_added'],
+        #         "tickets_skipped": sync_stats['tickets_skipped'],
+        #         "tickets_linked": sync_stats.get('tickets_linked', 0),
+        #         "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
+        #         "total_errors": len(sync_stats.get('errors', []))
+        #     }
+        # }
+        # 
+        # # Send webhook (don't fail further if webhook fails)
+        # try:
+        #     await send_webhook(webhook_url, webhook_data)
+        #     logger.info("Error webhook notification sent")
+        # except Exception as webhook_error:
+        #     logger.error(f"Failed to send error webhook: {str(webhook_error)}")
         
-        # Send webhook (don't fail further if webhook fails)
-        try:
-            await send_webhook(webhook_url, webhook_data)
-            logger.info("Error webhook notification sent")
-        except Exception as webhook_error:
-            logger.error(f"Failed to send error webhook: {str(webhook_error)}")
+        logger.info("Error webhook notifications temporarily disabled - mitchellhub.org server down")
         
         raise
 
