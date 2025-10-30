@@ -148,12 +148,8 @@ async def sync_updateable_tickets(company_id: int = None) -> Dict[str, Any]:
             company_stats = {"tickets_processed": 0, "tickets_checked": 0, "tickets_added": 0, "api_failures": 0}
             
             try:
-                logger.info(f"Processing company {company['id']}: {company.get('name', 'Unknown')}")
-                
                 # Get tickets that meet updatable criteria for this company
                 updatable_tickets = await get_updatable_ticket_candidates(company["id"])
-                logger.info(f"Found {len(updatable_tickets)} updatable ticket candidates for company {company['id']}")
-                
                 company_stats["tickets_processed"] = len(updatable_tickets)
                 
                 # Get BlueStakes auth token
@@ -178,9 +174,6 @@ async def sync_updateable_tickets(company_id: int = None) -> Dict[str, Any]:
                             # Add ticket to updatable_tickets table
                             await insert_updatable_ticket(ticket["ticket_number"])
                             company_stats["tickets_added"] += 1
-                            logger.info(f"Added updatable ticket {ticket['ticket_number']} to database")
-                        else:
-                            logger.debug(f"Ticket {ticket['ticket_number']} does not have updates available")
                             
                     except Exception as e:
                         company_stats["api_failures"] += 1
@@ -194,8 +187,6 @@ async def sync_updateable_tickets(company_id: int = None) -> Dict[str, Any]:
                 stats["tickets_added"] += company_stats["tickets_added"]
                 stats["api_failures"] += company_stats["api_failures"]
                 stats["companies_processed"] += 1
-                
-                logger.info(f"Company {company['id']} sync completed: {company_stats}")
                 
             except Exception as e:
                 stats["companies_failed"] += 1
@@ -229,7 +220,6 @@ async def get_companies_for_updateable_sync(company_id: int = None) -> List[Dict
         result = query.execute()
         
         if not result.data:
-            logger.warning(f"No companies found with BlueStakes credentials for updateable sync")
             return []
         
         return result.data
@@ -279,7 +269,6 @@ async def get_updatable_ticket_candidates(company_id: int) -> List[Dict[str, Any
         # Return only tickets that aren't already in the updatable_tickets table
         candidates = [ticket for ticket in result.data if ticket["ticket_number"] not in existing_numbers]
         
-        logger.info(f"Found {len(candidates)} updatable ticket candidates for company {company_id} (filtered {len(existing_numbers)} already in updatable table)")
         return candidates
         
     except Exception as e:
@@ -306,7 +295,6 @@ async def insert_updatable_ticket(ticket_number: str) -> bool:
                    .execute())
         
         if existing.data:
-            logger.debug(f"Ticket {ticket_number} already exists in updatable_tickets table")
             return False
         
         # Insert new record
@@ -396,7 +384,6 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                 return sync_stats
         else:
             companies = await get_companies_with_bluestakes_credentials()
-            logger.info(f"Found {len(companies)} companies with BlueStakes credentials")
             
             if not companies:
                 logger.warning("No companies found with BlueStakes credentials")
@@ -413,9 +400,6 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
             "limit": 100  # Reasonable limit per company
         }
         
-        logger.info(f"Syncing tickets from {search_params['start']} to {search_params['end']} "
-                   f"({days_back} days back)")
-        
         # Step 3: Process each company
         for company in companies:
             try:
@@ -423,10 +407,6 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                 sync_stats["companies_processed"] += 1
                 sync_stats["tickets_added"] += company_stats["tickets_added"]
                 sync_stats["tickets_skipped"] += company_stats["tickets_skipped"]
-                
-                logger.info(f"Company {company['id']} ({company['name']}): "
-                           f"Added {company_stats['tickets_added']}, "
-                           f"Skipped {company_stats['tickets_skipped']}")
                 
             except Exception as e:
                 sync_stats["companies_failed"] += 1
@@ -441,7 +421,6 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
             linking_results = await link_orphaned_tickets_to_projects()
             linked_count = linking_results["linked"]
             old_tickets_updated = linking_results["old_tickets_updated"]
-            logger.info(f"Linked {linked_count} orphaned tickets to projects and updated {old_tickets_updated} old tickets")
             sync_stats["tickets_linked"] = linked_count
             sync_stats["old_tickets_updated"] = old_tickets_updated
         except Exception as e:
@@ -585,17 +564,11 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
     # Step 2: Search for tickets
     bluestakes_response = await search_bluestakes_tickets(token, search_params)
     
-    # Debug logging to see what we got from BlueStakes API
-    logger.info(f"BlueStakes API response type: {type(bluestakes_response)}")
-    
     # Step 3: Process tickets
     if isinstance(bluestakes_response, list):
-        logger.info(f"Processing list response with {len(bluestakes_response)} items")
         for i, response_item in enumerate(bluestakes_response):
-            logger.info(f"Response item {i}: type={type(response_item)}, keys={list(response_item.keys()) if isinstance(response_item, dict) else 'N/A'}")
             if isinstance(response_item, dict) and "data" in response_item:
                 tickets_data = response_item.get("data", [])
-                logger.info(f"Found {len(tickets_data)} tickets in response item {i}")
                 
                 for ticket_data in tickets_data:
                     if isinstance(ticket_data, dict):
@@ -623,13 +596,9 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
                             logger.error(f"Error processing ticket {ticket_number}: {str(e)}")
                             continue
     elif isinstance(bluestakes_response, dict):
-        logger.info("Processing dict response")
-        logger.info(f"Dict keys: {list(bluestakes_response.keys())}")
-        
         # Handle direct dict response with tickets data
         if "data" in bluestakes_response:
             tickets_data = bluestakes_response.get("data", [])
-            logger.info(f"Found {len(tickets_data)} tickets in direct dict response")
             
             for ticket_data in tickets_data:
                 if isinstance(ticket_data, dict):
@@ -734,11 +703,9 @@ async def link_orphaned_tickets_to_projects() -> Dict[str, int]:
                           .execute())
         
         if not orphaned_result.data:
-            logger.info("No orphaned tickets with old_ticket references found")
             return {"linked": 0, "old_tickets_updated": 0}
         
         orphaned_tickets = orphaned_result.data
-        logger.info(f"Found {len(orphaned_tickets)} orphaned tickets with old_ticket references")
         
         linked_count = 0
         old_tickets_updated_count = 0
@@ -772,8 +739,6 @@ async def link_orphaned_tickets_to_projects() -> Dict[str, int]:
                     
                     if update_result.data:
                         linked_count += 1
-                        logger.debug(f"Linked ticket {ticket['ticket_number']} to project {project_id} "
-                                   f"based on old_ticket {old_ticket_number}")
                         
                         # Update the old ticket to set is_continue_update to FALSE
                         try:
@@ -783,15 +748,11 @@ async def link_orphaned_tickets_to_projects() -> Dict[str, int]:
                             logger.error(f"Error updating old ticket {old_ticket_number} continue status: {str(e)}")
                     else:
                         logger.warning(f"Failed to update ticket {ticket['ticket_number']} with project_id {project_id}")
-                else:
-                    logger.debug(f"No existing project found for old_ticket {old_ticket_number} "
-                               f"(ticket: {ticket['ticket_number']})")
                     
             except Exception as e:
                 logger.error(f"Error processing orphaned ticket {ticket.get('ticket_number', 'unknown')}: {str(e)}")
                 continue
         
-        logger.info(f"Successfully linked {linked_count} orphaned tickets to projects and updated {old_tickets_updated_count} old tickets")
         return {"linked": linked_count, "old_tickets_updated": old_tickets_updated_count}
         
     except Exception as e:
@@ -820,7 +781,6 @@ async def update_old_ticket_continue_status(old_ticket_number: str, company_id: 
                         .execute())
         
         if update_result.data:
-            logger.debug(f"Updated old ticket {old_ticket_number} is_continue_update to FALSE")
             return True
         else:
             logger.warning(f"No old ticket found to update: {old_ticket_number} for company {company_id}")
@@ -851,7 +811,6 @@ async def send_weekly_project_digest():
         
         # Get all unique assigned users
         users = await get_unique_assigned_users()
-        logger.info(f"Found {len(users)} assigned users for weekly digest")
         
         if not users:
             logger.warning("No assigned users found for weekly digest")
@@ -883,7 +842,6 @@ async def send_weekly_project_digest():
                 user_projects = await get_assigned_projects_for_user(user_email)
                 
                 if not user_projects:
-                    logger.debug(f"No projects found for user {user_email}")
                     continue
                 
                 # Get tickets for each project
@@ -903,7 +861,6 @@ async def send_weekly_project_digest():
                         total_tickets += len(project_tickets)
                 
                 if not projects_data:
-                    logger.debug(f"No active tickets found for user {user_email}")
                     continue
                 
                 # Get company information (assuming all projects belong to the same company)
@@ -930,7 +887,6 @@ async def send_weekly_project_digest():
                 )
                 
                 emails_sent += 1
-                logger.info(f"Weekly digest sent to {user_email}: {result}")
                 
             except Exception as e:
                 error_msg = f"Error sending digest to {user.get('email', 'unknown')}: {str(e)}"
@@ -996,7 +952,6 @@ async def save_bluestakes_ticket_data(ticket_number: str, bluestakes_data: Dict[
              })
              .execute())
         
-        logger.info(f"Saved bluestakes data for ticket {ticket_number}")
         
     except Exception as e:
         logger.error(f"Error saving bluestakes data for ticket {ticket_number}: {str(e)}")
