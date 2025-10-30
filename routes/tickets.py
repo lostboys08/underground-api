@@ -36,7 +36,7 @@ except ImportError as e:
 
 # Import job management system
 from services.job_manager import job_manager, JobStatus
-from tasks.ticket_update_jobs import process_ticket_update_background_task
+from tasks.ticket_update_jobs import process_ticket_update_with_semaphore
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -180,15 +180,15 @@ async def update_ticket(request: TicketUpdateRequest, background_tasks: Backgrou
         
         logging.info("Input validation passed - creating job")
         
-        # Create job in job manager
+        # Create job in job manager for tracking
         job_id = job_manager.create_job(
             ticket_number=request.ticket_number,
             username=request.username
         )
         
-        # Add background task to process the job
+        # Add background task with semaphore-controlled concurrency
         background_tasks.add_task(
-            process_ticket_update_background_task,
+            process_ticket_update_with_semaphore,
             job_id=job_id,
             username=request.username,
             password=request.password,

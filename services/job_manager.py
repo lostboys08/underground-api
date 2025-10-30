@@ -68,13 +68,13 @@ class JobManager:
     
     def __init__(self):
         self._jobs: Dict[str, Job] = {}
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._processing_lock = asyncio.Lock()
-        self._is_processing = False
+        # Use semaphore to limit concurrent ticket updates (only 1 at a time)
+        self._semaphore = asyncio.Semaphore(1)
+        self._active_jobs = 0
         
     def create_job(self, ticket_number: str, username: str) -> str:
         """
-        Create a new job and add it to the queue.
+        Create a new job for tracking.
         
         Args:
             ticket_number: Ticket number to update
@@ -93,22 +93,7 @@ class JobManager:
         )
         
         self._jobs[job_id] = job
-        
-        # Add to queue (non-blocking)
-        try:
-            self._queue.put_nowait({
-                'job_id': job_id,
-                'ticket_number': ticket_number,
-                'username': username
-            })
-            logger.info(f"Job {job_id} created and queued for ticket {ticket_number}")
-        except asyncio.QueueFull:
-            logger.error(f"Queue is full, cannot add job {job_id}")
-            job.status = JobStatus.FAILED
-            job.result = JobResult(
-                success=False,
-                message="Queue is full, please try again later"
-            )
+        logger.info(f"Job {job_id} created for ticket {ticket_number}")
         
         return job_id
     
@@ -149,18 +134,14 @@ class JobManager:
         
         logger.info(f"Job {job_id} status updated to {status.value}")
     
-    async def get_next_job(self) -> Optional[Dict[str, Any]]:
+    def get_semaphore(self) -> asyncio.Semaphore:
         """
-        Get the next job from the queue.
+        Get the semaphore for controlling concurrent job execution.
         
         Returns:
-            Job data dictionary or None if queue is empty
+            The asyncio.Semaphore instance
         """
-        try:
-            # Use get_nowait to avoid blocking
-            return self._queue.get_nowait()
-        except asyncio.QueueEmpty:
-            return None
+        return self._semaphore
     
     def get_queue_status(self) -> Dict[str, Any]:
         """
@@ -181,8 +162,9 @@ class JobManager:
             "processing_jobs": processing_jobs,
             "completed_jobs": completed_jobs,
             "failed_jobs": failed_jobs,
-            "queue_size": self._queue.qsize(),
-            "is_processing": self._is_processing
+            "concurrent_limit": self._semaphore._value,
+            "available_slots": self._semaphore._value,
+            "active_jobs": self._active_jobs
         }
     
     def cleanup_old_jobs(self, max_age_hours: int = 24):
@@ -207,9 +189,13 @@ class JobManager:
         if jobs_to_remove:
             logger.info(f"Cleaned up {len(jobs_to_remove)} old jobs")
     
-    def set_processing_status(self, is_processing: bool):
-        """Set the global processing status."""
-        self._is_processing = is_processing
+    def increment_active_jobs(self):
+        """Increment the active jobs counter."""
+        self._active_jobs += 1
+    
+    def decrement_active_jobs(self):
+        """Decrement the active jobs counter."""
+        self._active_jobs = max(0, self._active_jobs - 1)
 
 
 # Global job manager instance

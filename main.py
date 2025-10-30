@@ -36,6 +36,14 @@ async def startup_event():
     asyncio.create_task(periodic_job_cleanup())
     logger.info("Periodic job cleanup task started")
     
+    # Log concurrency settings
+    try:
+        from services.job_manager import job_manager
+        semaphore = job_manager.get_semaphore()
+        logger.info(f"Ticket update concurrency limit: {semaphore._value}")
+    except Exception as e:
+        logger.error(f"Failed to get concurrency info: {e}")
+    
     logger.info("Underground API startup complete")
 
 # Add CORS middleware
