@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -33,6 +33,10 @@ except ImportError as e:
             message="Ticket update service unavailable",
             details="Service import failed"
         )
+
+# Import job management system
+from services.job_manager import job_manager, JobStatus
+from tasks.ticket_update_jobs import process_ticket_update_background_task
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -92,6 +96,22 @@ class TicketUpdateResponse(BaseModel):
     updated_at: datetime
     details: Optional[str] = None
 
+class TicketUpdateJobResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+    ticket_number: str
+    created_at: datetime
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    ticket_number: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    result: Optional[Dict[str, Any]] = None
+
 class ProjectTicketCreate(BaseModel):
     project_id: Optional[int] = None
     ticket_number: str
@@ -107,19 +127,20 @@ class ProjectTicketCreate(BaseModel):
 
 
 
-@router.post("/update", response_model=TicketUpdateResponse)
-async def update_ticket(request: TicketUpdateRequest):
+@router.post("/update", response_model=TicketUpdateJobResponse)
+async def update_ticket(request: TicketUpdateRequest, background_tasks: BackgroundTasks):
     """
-    Update a single BlueStakes ticket using browser automation.
+    Queue a ticket update job for background processing.
     
     Args:
         request: TicketUpdateRequest containing username, password, and ticket_number
+        background_tasks: FastAPI background tasks for processing
         
     Returns:
-        TicketUpdateResponse with success status and details
+        TicketUpdateJobResponse with job ID and queued status
     """
     # Log incoming request details (without sensitive password)
-    logging.info(f"=== TICKET UPDATE REQUEST START ===")
+    logging.info(f"=== TICKET UPDATE QUEUE REQUEST START ===")
     logging.info(f"Ticket number: {request.ticket_number}")
     logging.info(f"Username: {request.username}")
     logging.info(f"Password provided: {'Yes' if request.password else 'No'}")
@@ -132,15 +153,10 @@ async def update_ticket(request: TicketUpdateRequest):
         
         if not TICKET_UPDATE_AVAILABLE:
             logging.warning("Ticket update service is not available - returning failure response")
-            response = TicketUpdateResponse(
-                success=False,
-                message="Ticket update service is currently unavailable",
-                ticket_number=request.ticket_number,
-                updated_at=datetime.now(),
-                details="The ticket update service failed to initialize on this deployment"
+            raise HTTPException(
+                status_code=503,
+                detail="Ticket update service is currently unavailable"
             )
-            logging.info(f"Returning unavailable service response: {response.dict()}")
-            return response
         
         logging.info("Ticket update service is available - proceeding with validation")
         
@@ -162,62 +178,125 @@ async def update_ticket(request: TicketUpdateRequest):
                 detail="Username, password, and ticket_number are all required"
             )
         
-        logging.info("Input validation passed - calling ticket updater service")
+        logging.info("Input validation passed - creating job")
         
-        # Call the ticket updater service with detailed logging
-        logging.info(f"Calling update_single_ticket for ticket: {request.ticket_number}")
-        service_call_start = datetime.now()
+        # Create job in job manager
+        job_id = job_manager.create_job(
+            ticket_number=request.ticket_number,
+            username=request.username
+        )
         
-        result = await update_single_ticket(
+        # Add background task to process the job
+        background_tasks.add_task(
+            process_ticket_update_background_task,
+            job_id=job_id,
             username=request.username,
             password=request.password,
             ticket_number=request.ticket_number
         )
         
-        service_call_duration = (datetime.now() - service_call_start).total_seconds()
-        logging.info(f"update_single_ticket completed in {service_call_duration:.2f} seconds")
+        logging.info(f"Job {job_id} created and queued for background processing")
         
-        # Log service result details
-        logging.info(f"Service result received:")
-        logging.info(f"  - Success: {result.success}")
-        logging.info(f"  - Message: {result.message}")
-        logging.info(f"  - Details: {result.details}")
-        logging.info(f"  - Updated at: {result.updated_at}")
-        
-        # Construct response with logging
-        logging.info("Constructing response object...")
-        response = TicketUpdateResponse(
-            success=result.success,
-            message=result.message,
+        # Construct response
+        response = TicketUpdateJobResponse(
+            job_id=job_id,
+            status="queued",
+            message="Ticket update job has been queued for processing",
             ticket_number=request.ticket_number,
-            updated_at=result.updated_at,
-            details=result.details
+            created_at=datetime.now(timezone.utc)
         )
         
-        # Log final response
-        logging.info(f"Final response constructed:")
-        logging.info(f"  - HTTP Status: 200")
-        logging.info(f"  - Response body: {response.dict()}")
-        logging.info(f"=== TICKET UPDATE REQUEST END ===")
+        logging.info(f"Returning job response: {response.dict()}")
+        logging.info(f"=== TICKET UPDATE QUEUE REQUEST END ===")
         
         return response
         
     except HTTPException as http_exc:
         logging.error(f"HTTPException caught: Status {http_exc.status_code}, Detail: {http_exc.detail}")
-        logging.info(f"=== TICKET UPDATE REQUEST END (HTTP ERROR) ===")
+        logging.info(f"=== TICKET UPDATE QUEUE REQUEST END (HTTP ERROR) ===")
         raise
     except Exception as e:
-        error_msg = f"Unexpected error updating ticket {request.ticket_number}: {str(e)}"
+        error_msg = f"Unexpected error during ticket update job creation: {str(e)}"
         logging.error(f"Unexpected exception: {error_msg}")
-        logging.error(f"Exception type: {type(e).__name__}")
-        logging.error(f"Exception args: {e.args}")
-        logging.info(f"=== TICKET UPDATE REQUEST END (EXCEPTION) ===")
+        logging.info(f"=== TICKET UPDATE QUEUE REQUEST END (UNEXPECTED ERROR) ===")
         raise HTTPException(
             status_code=500,
             detail=error_msg
         )
 
 
+@router.get("/update/status/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    """
+    Get the status of a ticket update job.
+    
+    Args:
+        job_id: The job ID to check
+        
+    Returns:
+        JobStatusResponse with job status and results
+    """
+    logging.info(f"Job status request for job_id: {job_id}")
+    
+    try:
+        # Get job from job manager
+        job = job_manager.get_job(job_id)
+        
+        if not job:
+            logging.warning(f"Job {job_id} not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Job {job_id} not found"
+            )
+        
+        # Convert job to response format
+        job_dict = job.to_dict()
+        response = JobStatusResponse(
+            job_id=job.id,
+            status=job.status.value,
+            ticket_number=job.ticket_number,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            result=job_dict.get('result')
+        )
+        
+        logging.info(f"Returning job status for {job_id}: {job.status.value}")
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Error retrieving job status for {job_id}: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+@router.get("/queue/status")
+async def get_queue_status():
+    """
+    Get the current status of the ticket update queue.
+    
+    Returns:
+        Dictionary with queue statistics
+    """
+    logging.info("Queue status request received")
+    
+    try:
+        status = job_manager.get_queue_status()
+        logging.info(f"Queue status: {status}")
+        return status
+        
+    except Exception as e:
+        error_msg = f"Error retrieving queue status: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
 
 
 

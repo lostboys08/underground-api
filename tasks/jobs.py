@@ -5,10 +5,10 @@ These functions are called by the cron routes but contain the actual business lo
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
-import httpx
 from config.supabase_client import get_service_client
 # import resend  # No longer needed - using Next.js API
 import os
+import pytz
 
 # Import BlueStakes API functions from utils module to avoid circular imports
 from utils.bluestakes import get_bluestakes_auth_token, search_bluestakes_tickets, transform_bluestakes_ticket_to_project_ticket, get_ticket_secondary_functions
@@ -313,40 +313,6 @@ async def insert_updatable_ticket(ticket_number: str) -> bool:
     except Exception as e:
         logger.error(f"Error inserting updatable ticket {ticket_number}: {str(e)}")
         raise
-
-
-async def send_webhook(webhook_url: str, data: Dict[str, Any]) -> bool:
-    """
-    Send webhook notification with data to specified URL.
-    
-    Args:
-        webhook_url: The webhook endpoint URL
-        data: Dictionary containing the data to send
-        
-    Returns:
-        bool: True if webhook was sent successfully, False otherwise
-    """
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                webhook_url,
-                json=data,
-                headers={"Content-Type": "application/json"}
-            )
-            
-            if response.status_code in [200, 201, 202]:
-                logger.info(f"Webhook sent successfully to {webhook_url}")
-                return True
-            else:
-                logger.warning(f"Webhook failed with status {response.status_code}: {response.text}")
-                return False
-                
-    except httpx.TimeoutException:
-        logger.error(f"Webhook timeout sending to {webhook_url}")
-        return False
-    except Exception as e:
-        logger.error(f"Error sending webhook to {webhook_url}: {str(e)}")
-        return False
 
 
 async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
@@ -913,49 +879,6 @@ async def send_weekly_project_digest():
         }
 
 
-async def save_bluestakes_ticket_data(ticket_number: str, bluestakes_data: Dict[str, Any]) -> None:
-    """
-    Save the full bluestakes ticket response to the database.
-    
-    Args:
-        ticket_number: The ticket number
-        bluestakes_data: The full response from bluestakes API
-    """
-    try:
-        # Check if ticket data already exists
-        existing = (get_service_client()
-                   .table("bluestakes_tickets")
-                   .select("ticket_number")
-                   .eq("ticket_number", ticket_number)
-                   .limit(1)
-                   .execute())
-        
-        if existing.data:
-            # Update existing record
-            (get_service_client()
-             .table("bluestakes_tickets")
-             .update({
-                 "ticket_data": bluestakes_data,
-                 "updated_at": datetime.utcnow().isoformat()
-             })
-             .eq("ticket_number", ticket_number)
-             .execute())
-        else:
-            # Insert new record
-            (get_service_client()
-             .table("bluestakes_tickets")
-             .insert({
-                 "ticket_number": ticket_number,
-                 "ticket_data": bluestakes_data,
-                 "created_at": datetime.utcnow().isoformat(),
-                 "updated_at": datetime.utcnow().isoformat()
-             })
-             .execute())
-        
-        
-    except Exception as e:
-        logger.error(f"Error saving bluestakes data for ticket {ticket_number}: {str(e)}")
-
 
 def format_location_from_bluestakes(bluestakes_data: Dict[str, Any]) -> str:
     """
@@ -1148,110 +1071,26 @@ async def get_company_info_for_digest(project_id: int) -> Dict[str, Any]:
                         .execute())
         
         if not project_result.data:
-            return {"name": "UndergroundIQ", "address": "123 Main St, City, State 12345"}
+            return {"name": "UndergroundIQ"}
         
         company_id = project_result.data[0]["company_id"]
         
         # Get company details
         company_result = (get_service_client()
                          .table("companies")
-                         .select("name, address")
+                         .select("name")
                          .eq("id", company_id)
                          .execute())
         
         if company_result.data:
             return company_result.data[0]
         else:
-            return {"name": "UndergroundIQ", "address": "123 Main St, City, State 12345"}
+            return {"name": "UndergroundIQ"}
             
     except Exception as e:
         logger.error(f"Error getting company info for digest (project {project_id}): {str(e)}")
-        return {"name": "UndergroundIQ", "address": "123 Main St, City, State 12345"}
+        return {"name": "UndergroundIQ"}
 
-
-async def render_weekly_digest_template(template_data: Dict[str, Any], projects_data: List[Dict[str, Any]]) -> str:
-    """
-    Render the weekly digest template with project data.
-    
-    Args:
-        template_data: Base template variables
-        projects_data: List of project data with tickets
-        
-    Returns:
-        Rendered HTML content
-    """
-    try:
-        from services.email_service import EmailService
-        
-        # Load the template
-        template_content = EmailService._load_template("weekly_projects_digest.html")
-        
-        # Start with base template data
-        rendered = EmailService._render_template(template_content, **template_data)
-        
-        # Handle project blocks - find the project block section
-        project_block_start = "<!-- PROJECT_BLOCK_START -->"
-        project_block_end = "<!-- PROJECT_BLOCK_END -->"
-        
-        start_idx = rendered.find(project_block_start)
-        end_idx = rendered.find(project_block_end)
-        
-        if start_idx == -1 or end_idx == -1:
-            logger.warning("Could not find project block markers in template")
-            return rendered
-        
-        # Extract the project block template
-        project_block_template = rendered[start_idx:end_idx + len(project_block_end)]
-        
-        # Generate project blocks
-        project_blocks = []
-        for project in projects_data:
-            # Render project block with project data (removed project_id)
-            project_block = EmailService._render_template(
-                project_block_template,
-                project_name=project["project_name"],
-                project_ticket_count=str(project["ticket_count"])
-            )
-            
-            # Handle ticket items within this project block
-            ticket_item_start = "<!-- TICKET_ITEM_START -->"
-            ticket_item_end = "<!-- TICKET_ITEM_END -->"
-            
-            ticket_start_idx = project_block.find(ticket_item_start)
-            ticket_end_idx = project_block.find(ticket_item_end)
-            
-            if ticket_start_idx != -1 and ticket_end_idx != -1:
-                # Extract ticket item template
-                ticket_item_template = project_block[ticket_start_idx:ticket_end_idx + len(ticket_item_end)]
-                
-                # Generate ticket items
-                ticket_items = []
-                for ticket in project["tickets"]:
-                    # Add location to ticket data for template rendering
-                    ticket_data = ticket.copy()
-                    ticket_data["location"] = ticket.get("location", "Location not available")
-                    ticket_item = EmailService._render_template(ticket_item_template, **ticket_data)
-                    ticket_items.append(ticket_item)
-                
-                # Replace ticket section with generated items
-                ticket_section = "".join(ticket_items)
-                project_block = (project_block[:ticket_start_idx] + 
-                               ticket_section + 
-                               project_block[ticket_end_idx + len(ticket_item_end):])
-            
-            project_blocks.append(project_block)
-        
-        # Replace the original project block with all generated blocks
-        all_project_blocks = "".join(project_blocks)
-        final_rendered = (rendered[:start_idx] + 
-                         all_project_blocks + 
-                         rendered[end_idx + len(project_block_end):])
-        
-        return final_rendered
-        
-    except Exception as e:
-        logger.error(f"Error rendering weekly digest template: {str(e)}")
-        raise
 
 
 async def prepare_user_digest_data(
@@ -1283,7 +1122,9 @@ async def prepare_user_digest_data(
     expiring_tickets_count = 0
     total_tickets = 0
     
-    today = datetime.now()
+    # Use America/Denver timezone for all datetime comparisons
+    denver_tz = pytz.timezone('America/Denver')
+    today = datetime.now(denver_tz)
     seven_days_ago = today - timedelta(days=7)
     seven_days_from_now = today + timedelta(days=7)
     
@@ -1295,16 +1136,33 @@ async def prepare_user_digest_data(
                 legal_date_raw = ticket_data.get("legal_date_raw")
                 replace_by_date_raw = ticket_data.get("replace_by_date_raw")
                 
-                # Convert to YYYY-MM-DD format for the API
-                legal_date = legal_date_raw.strftime("%Y-%m-%d") if legal_date_raw else today.strftime("%Y-%m-%d")
-                expires_date = replace_by_date_raw.strftime("%Y-%m-%d") if replace_by_date_raw else today.strftime("%Y-%m-%d")
+                # Convert database datetime objects to Denver timezone for comparison
+                legal_date_denver = None
+                if legal_date_raw:
+                    # Convert UTC datetime to Denver timezone
+                    if legal_date_raw.tzinfo is None:
+                        legal_date_denver = pytz.utc.localize(legal_date_raw).astimezone(denver_tz)
+                    else:
+                        legal_date_denver = legal_date_raw.astimezone(denver_tz)
                 
-                # Count new tickets (legal date within 7 days)
-                if legal_date_raw and legal_date_raw >= seven_days_ago:
+                replace_by_date_denver = None
+                if replace_by_date_raw:
+                    # Convert UTC datetime to Denver timezone
+                    if replace_by_date_raw.tzinfo is None:
+                        replace_by_date_denver = pytz.utc.localize(replace_by_date_raw).astimezone(denver_tz)
+                    else:
+                        replace_by_date_denver = replace_by_date_raw.astimezone(denver_tz)
+                
+                # Convert to YYYY-MM-DD format for the API
+                legal_date = legal_date_denver.strftime("%Y-%m-%d") if legal_date_denver else today.strftime("%Y-%m-%d")
+                expires_date = replace_by_date_denver.strftime("%Y-%m-%d") if replace_by_date_denver else today.strftime("%Y-%m-%d")
+                
+                # Count new tickets (legal date within 7 days) - now timezone-aware comparison
+                if legal_date_denver and legal_date_denver >= seven_days_ago:
                     new_tickets_count += 1
                 
-                # Count expiring tickets (expires within 7 days)
-                if replace_by_date_raw and replace_by_date_raw <= seven_days_from_now:
+                # Count expiring tickets (expires within 7 days) - now timezone-aware comparison
+                if replace_by_date_denver and replace_by_date_denver <= seven_days_from_now:
                     expiring_tickets_count += 1
                 
                 ticket = Ticket(

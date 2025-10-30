@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 import logging
+import asyncio
 from utils.auth import check_api_key_middleware
 
 # Configure logging with standard format for Railway
@@ -14,6 +15,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Underground API", version="1.0.0")
+
+# Job manager cleanup task
+async def periodic_job_cleanup():
+    """Periodic cleanup of old jobs to prevent memory leaks."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Run every hour
+            from tasks.ticket_update_jobs import cleanup_old_jobs
+            await cleanup_old_jobs()
+        except Exception as e:
+            logger.error(f"Error in periodic job cleanup: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    logger.info("Starting up Underground API...")
+    
+    # Start periodic job cleanup
+    asyncio.create_task(periodic_job_cleanup())
+    logger.info("Periodic job cleanup task started")
+    
+    logger.info("Underground API startup complete")
 
 # Add CORS middleware
 app.add_middleware(
@@ -127,6 +150,13 @@ async def health_check():
             
     except Exception as e:
         health_status["supabase_error"] = str(e)
+    
+    # Add job queue status
+    try:
+        from services.job_manager import job_manager
+        health_status["job_queue"] = job_manager.get_queue_status()
+    except Exception as e:
+        health_status["job_queue_error"] = str(e)
     
     return health_status
 
