@@ -63,9 +63,30 @@ class ProjectTicketCreate(BaseModel):
     bluestakes_data: Optional[Dict[str, Any]] = None
 
 
-async def get_bluestakes_auth_token(username: str, password: str) -> str:
+async def get_bluestakes_auth_token(username: str, password: str, company_id: Optional[int] = None) -> str:
     """
-    Get authentication token from BlueStakes API using the /login-json endpoint
+    Get authentication token from BlueStakes API with caching support.
+    
+    Args:
+        username: BlueStakes username
+        password: BlueStakes password  
+        company_id: Company ID for token caching (optional)
+        
+    Returns:
+        Authentication token
+    """
+    # If company_id is provided, use token caching
+    if company_id:
+        from utils.bluestakes_token_manager import get_or_refresh_token
+        return await get_or_refresh_token(company_id, username, password)
+    
+    # Otherwise, authenticate directly (legacy behavior)
+    return await get_bluestakes_auth_token_raw(username, password)
+
+
+async def get_bluestakes_auth_token_raw(username: str, password: str) -> str:
+    """
+    Get authentication token from BlueStakes API using the /login-json endpoint (no caching).
     """
     if not username or not password:
         raise HTTPException(
@@ -119,28 +140,47 @@ async def get_bluestakes_auth_token(username: str, password: str) -> str:
         )
 
 
-async def search_bluestakes_tickets(token: str, search_params: Dict[str, Any]) -> Dict[str, Any]:
+async def search_bluestakes_tickets(token: str, search_params: Dict[str, Any], company_id: Optional[int] = None, username: Optional[str] = None, password: Optional[str] = None) -> Dict[str, Any]:
     """
-    Search tickets from BlueStakes API using the /tickets/search endpoint
+    Search tickets from BlueStakes API using the /tickets/search endpoint.
+    
+    Args:
+        token: Authentication token
+        search_params: Search parameters for the API
+        company_id: Company ID for token refresh (optional)
+        username: Username for token refresh (optional) 
+        password: Password for token refresh (optional)
     """
+    # Build query parameters for the search
+    params = {}
+    if search_params.get("limit"):
+        params["limit"] = search_params["limit"]
+    if search_params.get("offset"):
+        params["offset"] = search_params["offset"]
+    if search_params.get("sort"):
+        params["sort"] = search_params["sort"]
+    if search_params.get("start"):
+        params["start"] = search_params["start"]
+    if search_params.get("end"):
+        params["end"] = search_params["end"]
+    if search_params.get("state"):
+        params["state"] = search_params["state"]
+    if search_params.get("county"):
+        params["county"] = search_params["county"]
+    
+    # Use authenticated request with retry if company credentials are provided
+    if company_id and username and password:
+        return await make_authenticated_request(
+            "GET",
+            f"{BLUESTAKES_BASE_URL}/tickets/search",
+            company_id,
+            username,
+            password,
+            params=params
+        )
+    
+    # Fallback to direct request (legacy behavior)
     try:
-        # Build query parameters for the search
-        params = {}
-        if search_params.get("limit"):
-            params["limit"] = search_params["limit"]
-        if search_params.get("offset"):
-            params["offset"] = search_params["offset"]
-        if search_params.get("sort"):
-            params["sort"] = search_params["sort"]
-        if search_params.get("start"):
-            params["start"] = search_params["start"]
-        if search_params.get("end"):
-            params["end"] = search_params["end"]
-        if search_params.get("state"):
-            params["state"] = search_params["state"]
-        if search_params.get("county"):
-            params["county"] = search_params["county"]
-        
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
@@ -386,3 +426,90 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
         bluestakes_data_updated_at=datetime.now(timezone.utc),
         bluestakes_data=ticket_data  # Store full raw response as backup
     )
+
+
+async def make_authenticated_request(
+    method: str, 
+    url: str, 
+    company_id: int,
+    username: str,
+    password: str,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Make an authenticated request to Bluestakes API with automatic token refresh.
+    
+    Args:
+        method: HTTP method (GET, POST, etc.)
+        url: Full URL to request
+        company_id: Company ID for token caching
+        username: Bluestakes username
+        password: Bluestakes password
+        **kwargs: Additional arguments for httpx request
+        
+    Returns:
+        Response JSON data
+        
+    Raises:
+        HTTPException: If request fails after retry
+    """
+    from utils.bluestakes_token_manager import get_or_refresh_token, clear_token
+    
+    # Get token (cached or fresh)
+    token = await get_or_refresh_token(company_id, username, password)
+    
+    # Prepare headers
+    headers = kwargs.get("headers", {})
+    headers.update({
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    })
+    kwargs["headers"] = headers
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await getattr(client, method.lower())(url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+            
+    except httpx.HTTPStatusError as e:
+        # If we get 401/403, token might be expired - try once more with fresh token
+        if e.response.status_code in [401, 403]:
+            logger.warning(f"Token expired for company {company_id}, refreshing and retrying...")
+            
+            # Clear the cached token and get a fresh one
+            await clear_token(company_id)
+            fresh_token = await get_or_refresh_token(company_id, username, password)
+            
+            # Update headers with fresh token
+            headers["Authorization"] = f"Bearer {fresh_token}"
+            kwargs["headers"] = headers
+            
+            # Retry the request
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await getattr(client, method.lower())(url, **kwargs)
+                    response.raise_for_status()
+                    return response.json()
+            except Exception as retry_e:
+                logger.error(f"Request failed even after token refresh: {str(retry_e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"BlueStakes API request failed after token refresh: {str(retry_e)}"
+                )
+        else:
+            # Re-raise non-auth errors
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"BlueStakes API request failed: {e.response.text}"
+            )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="Request to BlueStakes API timed out"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error connecting to BlueStakes API: {str(e)}"
+        )
