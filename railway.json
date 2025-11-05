@@ -18,6 +18,11 @@
       "name": "weekly-project-digest",
       "schedule": "0 9 * * 1",
       "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/send-weekly-project-digest"
+    },
+    {
+      "name": "sync-bluestakes-data",
+      "schedule": "0 2 * * *",
+      "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/sync-bluestakes-data"
     }
   ]
 }

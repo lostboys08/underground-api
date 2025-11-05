@@ -23,6 +23,44 @@ class ProjectTicketCreate(BaseModel):
     is_continue_update: bool = True
     legal_date: Optional[datetime] = None
     company_id: int = 1  # Default to 1 for now
+    
+    # Location & Maps
+    place: Optional[str] = None
+    street: Optional[str] = None
+    latitude: Optional[str] = None
+    longitude: Optional[str] = None
+    work_area: Optional[Dict[str, Any]] = None  # GeoJSON data
+    
+    # Date Fields
+    expires: Optional[datetime] = None
+    original_date: Optional[datetime] = None
+    
+    # Work Details
+    done_for: Optional[str] = None
+    type: Optional[str] = None
+    priority: Optional[str] = None
+    category: Optional[str] = None
+    
+    # Address Details
+    st_from_address: Optional[str] = None
+    st_to_address: Optional[str] = None
+    cross1: Optional[str] = None
+    cross2: Optional[str] = None
+    county: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    
+    # Contact Information
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    
+    # Ticket Management
+    revision: Optional[str] = None
+    
+    # Metadata
+    bluestakes_data_updated_at: Optional[datetime] = None
+    bluestakes_data: Optional[Dict[str, Any]] = None
 
 
 async def get_bluestakes_auth_token(username: str, password: str) -> str:
@@ -257,27 +295,94 @@ def parse_bluestakes_datetime(date_str: Optional[str]) -> Optional[datetime]:
 
 def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], company_id: int = 1) -> ProjectTicketCreate:
     """
-    Transform BlueStakes ticket data to ProjectTicketCreate model
+    Transform BlueStakes ticket data to ProjectTicketCreate model with all fields
     """
     # Parse required dates
     replace_by_date = parse_bluestakes_datetime(ticket_data.get("replace_by_date"))
-    
     legal_date = parse_bluestakes_datetime(ticket_data.get("legal_date"))
+    expires = parse_bluestakes_datetime(ticket_data.get("expires"))
+    original_date = parse_bluestakes_datetime(ticket_data.get("original_date"))
     
     # Determine if ticket should continue updates based on expiration
-    expires = parse_bluestakes_datetime(ticket_data.get("expires"))
     now = datetime.now(timezone.utc)
     is_continue_update = True
     
     if expires and expires < now:
         is_continue_update = False
     
+    # Handle work_area GeoJSON data
+    work_area = None
+    if ticket_data.get("work_area"):
+        try:
+            # Ensure work_area is valid GeoJSON
+            work_area_data = ticket_data.get("work_area")
+            if isinstance(work_area_data, dict):
+                # Validate basic GeoJSON structure
+                if work_area_data.get("type") in ["Feature", "FeatureCollection", "Polygon", "MultiPolygon"]:
+                    work_area = work_area_data
+                else:
+                    logger.warning(f"Invalid GeoJSON type in work_area: {work_area_data.get('type')}")
+            elif isinstance(work_area_data, str):
+                # Try to parse JSON string
+                import json
+                try:
+                    work_area = json.loads(work_area_data)
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse work_area JSON string: {work_area_data}")
+        except Exception as e:
+            logger.warning(f"Error processing work_area data: {str(e)}")
+    
+    # Helper function to clean string values (convert empty strings to None)
+    def clean_string(value):
+        if isinstance(value, str):
+            cleaned = value.strip()
+            return cleaned if cleaned and cleaned != "" else None
+        return value
+    
     return ProjectTicketCreate(
         project_id=None,
         ticket_number=ticket_data.get("ticket", ""),
         replace_by_date=replace_by_date,
-        old_ticket=ticket_data.get("original_ticket"),
+        old_ticket=clean_string(ticket_data.get("original_ticket")),
         is_continue_update=is_continue_update,
         legal_date=legal_date,
-        company_id=company_id  # TODO: This should be updated in the future to use proper company mapping
+        company_id=company_id,
+        
+        # Location & Maps
+        place=clean_string(ticket_data.get("place")),
+        street=clean_string(ticket_data.get("street")),
+        latitude=clean_string(ticket_data.get("latitude")),
+        longitude=clean_string(ticket_data.get("longitude")),
+        work_area=work_area,
+        
+        # Date Fields
+        expires=expires,
+        original_date=original_date,
+        
+        # Work Details
+        done_for=clean_string(ticket_data.get("done_for")),
+        type=clean_string(ticket_data.get("type")),
+        priority=clean_string(ticket_data.get("priority")),
+        category=clean_string(ticket_data.get("category")),
+        
+        # Address Details
+        st_from_address=clean_string(ticket_data.get("st_from_address")),
+        st_to_address=clean_string(ticket_data.get("st_to_address")),
+        cross1=clean_string(ticket_data.get("cross1")),
+        cross2=clean_string(ticket_data.get("cross2")),
+        county=clean_string(ticket_data.get("county")),
+        state=clean_string(ticket_data.get("state")),
+        zip=clean_string(ticket_data.get("zip")),
+        
+        # Contact Information
+        name=clean_string(ticket_data.get("name")),
+        phone=clean_string(ticket_data.get("phone")),
+        email=clean_string(ticket_data.get("email")),
+        
+        # Ticket Management
+        revision=clean_string(ticket_data.get("revision")),
+        
+        # Metadata
+        bluestakes_data_updated_at=datetime.now(timezone.utc),
+        bluestakes_data=ticket_data  # Store full raw response as backup
     )

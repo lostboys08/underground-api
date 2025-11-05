@@ -37,6 +37,7 @@ except ImportError as e:
 # Import job management system
 from services.job_manager import job_manager, JobStatus
 from tasks.ticket_update_jobs import process_ticket_update_with_semaphore
+from tasks.jobs import update_project_ticket_bluestakes_data, sync_existing_tickets_bluestakes_data
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -292,6 +293,122 @@ async def get_queue_status():
         
     except Exception as e:
         error_msg = f"Error retrieving queue status: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+@router.post("/{ticket_number}/sync-bluestakes")
+async def sync_ticket_bluestakes_data(
+    ticket_number: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    Manually sync a specific ticket with fresh Bluestakes data.
+    
+    This endpoint fetches comprehensive ticket data from the Bluestakes API
+    and updates the project_tickets table with location, work_area (GeoJSON),
+    dates, contact info, and other fields.
+    
+    Args:
+        ticket_number: The ticket number to sync
+        
+    Returns:
+        JSON response indicating the sync job was queued
+    """
+    try:
+        # First, verify the ticket exists and get its company_id
+        result = (get_service_client()
+                 .table("project_tickets")
+                 .select("company_id")
+                 .eq("ticket_number", ticket_number)
+                 .limit(1)
+                 .execute())
+        
+        if not result.data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Ticket {ticket_number} not found in database"
+            )
+        
+        company_id = result.data[0]["company_id"]
+        
+        # Add the sync job to background tasks
+        background_tasks.add_task(
+            update_project_ticket_bluestakes_data,
+            ticket_number,
+            company_id
+        )
+        
+        logging.info(f"Bluestakes data sync queued for ticket {ticket_number}")
+        
+        return {
+            "status": "success",
+            "message": f"Bluestakes data sync queued for ticket {ticket_number}",
+            "ticket_number": ticket_number,
+            "company_id": company_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Error queueing sync for ticket {ticket_number}: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+@router.post("/sync-all-bluestakes")
+async def sync_all_tickets_bluestakes_data(
+    background_tasks: BackgroundTasks,
+    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
+    max_age_hours: Optional[int] = Query(default=24, description="Only sync tickets older than this many hours"),
+    batch_size: Optional[int] = Query(default=50, description="Number of tickets to process in each batch")
+):
+    """
+    Manually sync all tickets (or tickets for a specific company) with fresh Bluestakes data.
+    
+    This endpoint updates existing tickets in the project_tickets table with comprehensive
+    Bluestakes data including location, work_area (GeoJSON), dates, contact info, etc.
+    
+    Query Parameters:
+        company_id: Optional company ID to sync (syncs all if not provided)
+        max_age_hours: Only sync tickets older than this many hours (default: 24)
+        batch_size: Number of tickets to process in each batch (default: 50)
+        
+    Returns:
+        JSON response indicating the bulk sync job was queued
+    """
+    try:
+        # Add the bulk sync job to background tasks
+        background_tasks.add_task(
+            sync_existing_tickets_bluestakes_data,
+            company_id,
+            batch_size,
+            max_age_hours
+        )
+        
+        if company_id:
+            logging.info(f"Bulk Bluestakes data sync queued for company {company_id}")
+        else:
+            logging.info("Bulk Bluestakes data sync queued for all companies")
+        
+        return {
+            "status": "success",
+            "message": "Bulk Bluestakes data sync job queued successfully",
+            "parameters": {
+                "company_id": company_id,
+                "max_age_hours": max_age_hours,
+                "batch_size": batch_size
+            }
+        }
+        
+    except Exception as e:
+        error_msg = f"Error queueing bulk sync: {str(e)}"
         logging.error(error_msg)
         raise HTTPException(
             status_code=500,
