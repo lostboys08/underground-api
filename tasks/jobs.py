@@ -1291,7 +1291,23 @@ async def should_sync_ticket_data(ticket_number: str, max_age_hours: int = 24) -
         
         # Parse the timestamp and check age
         from datetime import datetime, timezone, timedelta
-        updated_datetime = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+        
+        # Handle the timestamp string - it might be timezone-naive or timezone-aware
+        if isinstance(updated_at, str):
+            # If it's a string, parse it
+            if updated_at.endswith('Z'):
+                updated_datetime = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+            elif '+' in updated_at or updated_at.endswith('00:00'):
+                updated_datetime = datetime.fromisoformat(updated_at)
+            else:
+                # Assume it's UTC if no timezone info
+                updated_datetime = datetime.fromisoformat(updated_at).replace(tzinfo=timezone.utc)
+        else:
+            # If it's already a datetime object, ensure it has timezone info
+            updated_datetime = updated_at
+            if updated_datetime.tzinfo is None:
+                updated_datetime = updated_datetime.replace(tzinfo=timezone.utc)
+        
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         
         return updated_datetime < cutoff_time
