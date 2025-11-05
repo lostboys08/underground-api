@@ -7,7 +7,7 @@ from typing import Optional
 import os
 import logging
 from datetime import datetime
-from tasks.jobs import sync_bluestakes_tickets, sync_updateable_tickets, send_weekly_project_digest
+from tasks.jobs import sync_bluestakes_tickets, sync_updateable_tickets, send_weekly_project_digest, sync_existing_tickets_bluestakes_data
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,59 @@ async def send_weekly_project_digest_cron(
     }
 
 
+@cron_router.post("/sync-bluestakes-data")
+async def sync_bluestakes_data_cron(
+    background_tasks: BackgroundTasks,
+    x_cron_secret: Optional[str] = Header(None),
+    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
+    max_age_hours: Optional[int] = Query(default=24, description="Only sync tickets older than this many hours"),
+    batch_size: Optional[int] = Query(default=50, description="Number of tickets to process in each batch")
+):
+    """
+    Sync existing project tickets with comprehensive Bluestakes data.
+    
+    This endpoint updates existing tickets in the project_tickets table with full
+    Bluestakes data including location, work_area (GeoJSON), dates, contact info, etc.
+    This eliminates the need for individual API calls during frontend display.
+    
+    Headers:
+        X-CRON-SECRET: Secret key for cron job authentication
+        
+    Query Parameters:
+        company_id: Optional company ID to sync (syncs all if not provided)
+        max_age_hours: Only sync tickets older than this many hours (default: 24)
+        batch_size: Number of tickets to process in each batch (default: 50)
+        
+    Returns:
+        JSON response indicating the job was queued successfully
+    """
+    verify_cron_secret(x_cron_secret)
+    
+    if company_id:
+        logger.info(f"Bluestakes data sync cron job triggered for company {company_id}")
+    else:
+        logger.info("Bluestakes data sync cron job triggered for all companies")
+    
+    # Add the job to background tasks
+    background_tasks.add_task(
+        sync_existing_tickets_bluestakes_data, 
+        company_id, 
+        batch_size, 
+        max_age_hours
+    )
+    
+    return {
+        "status": "success",
+        "message": "Bluestakes data sync job queued successfully",
+        "job": "sync_existing_tickets_bluestakes_data",
+        "parameters": {
+            "company_id": company_id,
+            "max_age_hours": max_age_hours,
+            "batch_size": batch_size
+        }
+    }
+
+
 @cron_router.get("/status")
 async def cron_status(x_cron_secret: Optional[str] = Header(None)):
     """
@@ -216,6 +269,12 @@ async def cron_status(x_cron_secret: Optional[str] = Header(None)):
                 "endpoint": "/cron/send-weekly-project-digest",
                 "method": "POST",
                 "description": "Send weekly project digest emails to assigned users"
+            },
+            {
+                "endpoint": "/cron/sync-bluestakes-data",
+                "method": "POST",
+                "description": "Sync existing tickets with comprehensive Bluestakes data",
+                "parameters": ["company_id", "max_age_hours", "batch_size"]
             }
         ],
         "authentication": {

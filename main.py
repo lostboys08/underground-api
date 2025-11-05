@@ -27,6 +27,19 @@ async def periodic_job_cleanup():
         except Exception as e:
             logger.error(f"Error in periodic job cleanup: {e}")
 
+# Token cleanup task
+async def periodic_token_cleanup():
+    """Periodic cleanup of expired tokens."""
+    while True:
+        try:
+            await asyncio.sleep(1800)  # Run every 30 minutes
+            from utils.bluestakes_token_manager import cleanup_expired_tokens
+            cleaned_count = await cleanup_expired_tokens()
+            if cleaned_count > 0:
+                logger.info(f"Cleaned up {cleaned_count} expired Bluestakes tokens")
+        except Exception as e:
+            logger.error(f"Error in periodic token cleanup: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
@@ -35,6 +48,10 @@ async def startup_event():
     # Start periodic job cleanup
     asyncio.create_task(periodic_job_cleanup())
     logger.info("Periodic job cleanup task started")
+    
+    # Start periodic token cleanup
+    asyncio.create_task(periodic_token_cleanup())
+    logger.info("Periodic token cleanup task started")
     
     # Log concurrency settings
     try:
@@ -111,6 +128,14 @@ try:
 except Exception as e:
     logger.error(f"Failed to load Cron Jobs router: {e}")
 
+try:
+    from routes.token_management import router as token_router
+    app.include_router(token_router)
+    routers_loaded.append("Token Management")
+    logger.info("Token Management router loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load Token Management router: {e}")
+
 
 @app.get("/")
 async def root():
@@ -122,6 +147,7 @@ async def root():
             "docs": "/docs",
             "health": "/health", 
             "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable",
+            "tokens": "/tokens/" if "Token Management" in routers_loaded else "unavailable",
             "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable"
         },
         "authentication": {
