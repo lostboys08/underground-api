@@ -2,6 +2,7 @@
 Background job functions for scheduled tasks.
 These functions are called by the cron routes but contain the actual business logic.
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
