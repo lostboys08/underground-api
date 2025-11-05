@@ -191,15 +191,15 @@ async def sync_existing_tickets_bluestakes_data(company_id: int = None, batch_si
     }
     
     try:
-        # Build query for tickets that need syncing
-        query = get_service_client().table("project_tickets").select("ticket_number, company_id")
-        
-        if company_id:
-            query = query.eq("company_id", company_id)
-        
         # Get tickets in batches
         offset = 0
         while True:
+            # Build query fresh each iteration to avoid accumulating parameters
+            query = get_service_client().table("project_tickets").select("ticket_number, company_id")
+
+            if company_id:
+                query = query.eq("company_id", company_id)
+
             result = query.range(offset, offset + batch_size - 1).execute()
             
             if not result.data:
