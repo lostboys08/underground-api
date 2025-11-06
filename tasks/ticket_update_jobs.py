@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any
 from services.job_manager import job_manager, JobStatus, JobResult
 from services.ticket_updater_service import update_single_ticket, TicketUpdateResult
+from utils.encryption import safe_decrypt_password, EncryptionError
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,24 @@ async def process_ticket_update_with_semaphore(
     
     async with semaphore:
         logger.info(f"Job {job_id} acquired semaphore, starting processing (ticket: {ticket_number})")
-        
+
         # Update job status to processing
         job_manager.update_job_status(job_id, JobStatus.PROCESSING)
         job_manager.increment_active_jobs()
-        
+
         try:
-            # Call the existing ticket updater service
+            # Decrypt the password before using it
+            try:
+                decrypted_password = safe_decrypt_password(password)
+                logger.info(f"Job {job_id}: Password decrypted successfully")
+            except EncryptionError as e:
+                logger.error(f"Job {job_id}: Failed to decrypt password: {str(e)}")
+                raise Exception(f"Password decryption failed: {str(e)}")
+
+            # Call the existing ticket updater service with decrypted password
             result: TicketUpdateResult = await update_single_ticket(
                 username=username,
-                password=password,
+                password=decrypted_password,
                 ticket_number=ticket_number
             )
             
