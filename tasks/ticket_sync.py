@@ -9,11 +9,13 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from config.supabase_client import get_service_client
 from utils.bluestakes import (
-    get_bluestakes_auth_token, 
-    search_bluestakes_tickets, 
+    get_bluestakes_auth_token,
+    search_bluestakes_tickets,
     transform_bluestakes_ticket_to_project_ticket
 )
 from utils.encryption import safe_decrypt_password, EncryptionError
+from tasks.response_sync import sync_bluestakes_responses
+from tasks.updatable_tickets import sync_updateable_tickets
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,10 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         "tickets_skipped": 0,
         "tickets_linked": 0,
         "old_tickets_updated": 0,
+        "updateable_tickets_checked": 0,
+        "updateable_tickets_found": 0,
+        "responses_synced": 0,
+        "responses_failed": 0,
         "errors": []
     }
     
@@ -104,7 +110,35 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                    f"{sync_stats['tickets_skipped']} skipped, "
                    f"{sync_stats.get('tickets_linked', 0)} linked to projects, "
                    f"{sync_stats.get('old_tickets_updated', 0)} old tickets updated.")
-        
+
+        # Step 5: Sync updateable tickets
+        logger.info("Starting updateable tickets sync...")
+        try:
+            updateable_stats = await sync_updateable_tickets(company_id)
+            sync_stats["updateable_tickets_checked"] = updateable_stats.get("tickets_checked", 0)
+            sync_stats["updateable_tickets_found"] = updateable_stats.get("updateable_tickets_found", 0)
+            logger.info(f"Updateable tickets sync completed: {updateable_stats.get('tickets_checked', 0)} checked, "
+                       f"{updateable_stats.get('updateable_tickets_found', 0)} updateable found")
+        except Exception as e:
+            logger.error(f"Error syncing updateable tickets: {str(e)}")
+            sync_stats["updateable_tickets_checked"] = 0
+            sync_stats["updateable_tickets_found"] = 0
+            sync_stats["errors"].append(f"Updateable tickets sync error: {str(e)}")
+
+        # Step 6: Sync responses for all active tickets
+        logger.info("Starting BlueStakes responses sync for active tickets...")
+        try:
+            response_stats = await sync_bluestakes_responses(company_id)
+            sync_stats["responses_synced"] = response_stats.get("total_tickets_updated", 0)
+            sync_stats["responses_failed"] = response_stats.get("total_tickets_failed", 0)
+            logger.info(f"Responses sync completed: {response_stats.get('total_tickets_updated', 0)} updated, "
+                       f"{response_stats.get('total_tickets_failed', 0)} failed")
+        except Exception as e:
+            logger.error(f"Error syncing responses: {str(e)}")
+            sync_stats["responses_synced"] = 0
+            sync_stats["responses_failed"] = 0
+            sync_stats["errors"].append(f"Responses sync error: {str(e)}")
+
         # Send webhook notification with results
         # TODO: Uncomment when mitchellhub.org webhook server is back online
         # webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
@@ -120,10 +154,14 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         #         "tickets_skipped": sync_stats['tickets_skipped'],
         #         "tickets_linked": sync_stats.get('tickets_linked', 0),
         #         "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
+        #         "updateable_tickets_checked": sync_stats.get('updateable_tickets_checked', 0),
+        #         "updateable_tickets_found": sync_stats.get('updateable_tickets_found', 0),
+        #         "responses_synced": sync_stats.get('responses_synced', 0),
+        #         "responses_failed": sync_stats.get('responses_failed', 0),
         #         "total_errors": len(sync_stats.get('errors', []))
         #     }
         # }
-        # 
+        #
         # # Send webhook (don't fail the job if webhook fails)
         # try:
         #     webhook_success = await send_webhook(webhook_url, webhook_data)
@@ -133,9 +171,9 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         #         logger.warning("Failed to send webhook notification")
         # except Exception as e:
         #     logger.error(f"Error sending webhook notification: {str(e)}")
-        
+
         logger.info("Webhook notifications temporarily disabled - mitchellhub.org server down")
-        
+
         return sync_stats
         
     except Exception as e:

@@ -428,9 +428,72 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
     )
 
 
+async def get_ticket_responses(token: str, ticket_number: str, company_id: Optional[int] = None, username: Optional[str] = None, password: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get responses for a specific ticket from BlueStakes API.
+
+    Args:
+        token: BlueStakes authentication token
+        ticket_number: The ticket number to fetch responses for
+        company_id: Company ID for token refresh (optional)
+        username: Username for token refresh (optional)
+        password: Password for token refresh (optional)
+
+    Returns:
+        Dict containing the responses data
+    """
+    # Use authenticated request with retry if company credentials are provided
+    if company_id and username and password:
+        return await make_authenticated_request(
+            "GET",
+            f"{BLUESTAKES_BASE_URL}/tickets/{ticket_number}/responses",
+            company_id,
+            username,
+            password
+        )
+
+    # Fallback to direct request (legacy behavior)
+    try:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                f"{BLUESTAKES_BASE_URL}/tickets/{ticket_number}/responses",
+                headers=headers
+            )
+            response.raise_for_status()
+            return response.json()
+
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="Request to BlueStakes API timed out"
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            # Ticket not found or no responses
+            return {
+                "ticket": ticket_number,
+                "responses": [],
+                "error": "Ticket not found or no responses available"
+            }
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"BlueStakes API responses request failed: {e.response.text}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error connecting to BlueStakes API: {str(e)}"
+        )
+
+
 async def make_authenticated_request(
-    method: str, 
-    url: str, 
+    method: str,
+    url: str,
     company_id: int,
     username: str,
     password: str,
