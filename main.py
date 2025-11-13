@@ -136,6 +136,14 @@ try:
 except Exception as e:
     logger.error(f"Failed to load Token Management router: {e}")
 
+try:
+    from routes.admin import router as admin_router
+    app.include_router(admin_router)
+    routers_loaded.append("Admin")
+    logger.info("Admin router loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load Admin router: {e}")
+
 
 @app.get("/")
 async def root():
@@ -145,10 +153,11 @@ async def root():
         "loaded_routers": routers_loaded,
         "available_endpoints": {
             "docs": "/docs",
-            "health": "/health", 
+            "health": "/health",
             "tickets": "/tickets/" if "Tickets" in routers_loaded else "unavailable",
             "tokens": "/tokens/" if "Token Management" in routers_loaded else "unavailable",
-            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable"
+            "cron_jobs": "/cron/" if "Cron Jobs" in routers_loaded else "unavailable",
+            "admin": "/admin/" if "Admin" in routers_loaded else "unavailable"
         },
         "authentication": {
             "type": "API Key",
