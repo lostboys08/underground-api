@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 import logging
 from services.email_service import EmailService
+from config.supabase_client import get_service_client
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +27,22 @@ class ContactFormSubmission(BaseModel):
 async def contact_submit(form_data: ContactFormSubmission):
     """
     Contact form submission endpoint.
-    Sends the form data via email to the admin team.
+    Sends the form data via email to the admin team and saves to CRM leads table.
 
     Args:
         form_data: Contact form submission data
 
     Returns:
-        dict: Success message with email status
+        dict: Success message with email status and lead ID
     """
+    lead_id = None
+
     try:
+        # Split name into first_name and last_name
+        name_parts = form_data.name.strip().split(None, 1)  # Split on first whitespace
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else None
+
         # Prepare email content
         template_props = {
             "name": form_data.name,
@@ -54,12 +62,43 @@ async def contact_submit(form_data: ContactFormSubmission):
             reply_to=form_data.email
         )
 
+        # Save to CRM leads table
+        try:
+            insert_data = {
+                "email": form_data.email,
+                "first_name": first_name,
+                "last_name": last_name,
+                "company_name": form_data.company,
+                "phone": form_data.phone,
+                "message": form_data.message,
+                "source": "website_contact_form",
+                "status": "new"
+            }
+
+            db_result = (get_service_client()
+                        .table("leads")
+                        .insert(insert_data)
+                        .execute())
+
+            if db_result.data:
+                lead_id = db_result.data[0].get("id")
+                logger.info(f"Contact form data saved to CRM leads table with ID: {lead_id}")
+
+        except Exception as db_error:
+            # Log database error but don't fail the request since email was sent
+            error_message = str(db_error)
+            if "duplicate key value violates unique constraint" in error_message.lower():
+                logger.warning(f"Lead already exists for email: {form_data.email}")
+            else:
+                logger.error(f"Failed to save lead to database: {error_message}")
+
         logger.info(f"Contact form submitted successfully from {form_data.email}")
 
         return {
             "message": "success from your API",
             "status": "sent",
-            "email_id": result.get("email_id")
+            "email_id": result.get("email_id"),
+            "lead_id": lead_id
         }
 
     except ValueError as e:
