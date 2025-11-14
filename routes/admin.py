@@ -27,88 +27,92 @@ class ContactFormSubmission(BaseModel):
 async def contact_submit(form_data: ContactFormSubmission):
     """
     Contact form submission endpoint.
-    Sends the form data via email to the admin team and saves to CRM leads table.
+    Saves contact form data to CRM leads table.
 
     Args:
         form_data: Contact form submission data
 
     Returns:
-        dict: Success message with email status and lead ID
+        dict: Success message with lead ID
     """
-    lead_id = None
-
     try:
         # Split name into first_name and last_name
         name_parts = form_data.name.strip().split(None, 1)  # Split on first whitespace
         first_name = name_parts[0]
         last_name = name_parts[1] if len(name_parts) > 1 else None
 
-        # Prepare email content
-        template_props = {
-            "name": form_data.name,
+        # Save to CRM leads table
+        insert_data = {
             "email": form_data.email,
-            "phone": form_data.phone or "Not provided",
-            "company": form_data.company or "Not provided",
-            "message": form_data.message
+            "first_name": first_name,
+            "last_name": last_name,
+            "company_name": form_data.company,
+            "phone": form_data.phone,
+            "message": form_data.message,
+            "source": "website_contact_form",
+            "status": "new"
         }
 
-        # Send email to admin team
-        result = await EmailService._send_email_via_nextjs(
-            to=["kai.mitchell@underground-iq.com", "hunter.bostic@underground-iq.com"],
-            subject=f"New Contact Form Submission from {form_data.name}",
-            template="contactForm",
-            template_props=template_props,
-            from_email="UndergroundIQ <notifications@underground-iq.com>",
-            reply_to=form_data.email
-        )
+        db_result = (get_service_client()
+                    .table("leads")
+                    .insert(insert_data)
+                    .execute())
 
-        # Save to CRM leads table
-        try:
-            insert_data = {
-                "email": form_data.email,
-                "first_name": first_name,
-                "last_name": last_name,
-                "company_name": form_data.company,
-                "phone": form_data.phone,
-                "message": form_data.message,
-                "source": "website_contact_form",
-                "status": "new"
-            }
+        lead_id = None
+        if db_result.data:
+            lead_id = db_result.data[0].get("id")
+            logger.info(f"Contact form data saved to CRM leads table with ID: {lead_id}")
 
-            db_result = (get_service_client()
-                        .table("leads")
-                        .insert(insert_data)
-                        .execute())
-
-            if db_result.data:
-                lead_id = db_result.data[0].get("id")
-                logger.info(f"Contact form data saved to CRM leads table with ID: {lead_id}")
-
-        except Exception as db_error:
-            # Log database error but don't fail the request since email was sent
-            error_message = str(db_error)
-            if "duplicate key value violates unique constraint" in error_message.lower():
-                logger.warning(f"Lead already exists for email: {form_data.email}")
-            else:
-                logger.error(f"Failed to save lead to database: {error_message}")
+        # TODO: Implement email notification functionality
+        # This will send email notifications to the admin team when a new contact form is submitted
+        # async def send_contact_form_email(form_data: ContactFormSubmission, lead_id: int):
+        #     """
+        #     Send email notification to admin team about new contact form submission.
+        #
+        #     Args:
+        #         form_data: Contact form submission data
+        #         lead_id: ID of the created lead in the database
+        #     """
+        #     template_props = {
+        #         "name": form_data.name,
+        #         "email": form_data.email,
+        #         "phone": form_data.phone or "Not provided",
+        #         "company": form_data.company or "Not provided",
+        #         "message": form_data.message,
+        #         "lead_id": lead_id
+        #     }
+        #
+        #     result = await EmailService._send_email_via_nextjs(
+        #         to=["kai.mitchell@underground-iq.com", "hunter.bostic@underground-iq.com"],
+        #         subject=f"New Contact Form Submission from {form_data.name}",
+        #         template="contactForm",
+        #         template_props=template_props,
+        #         from_email="UndergroundIQ <notifications@underground-iq.com>",
+        #         reply_to=form_data.email
+        #     )
+        #     return result
 
         logger.info(f"Contact form submitted successfully from {form_data.email}")
 
         return {
             "message": "success from your API",
-            "status": "sent",
-            "email_id": result.get("email_id"),
+            "status": "saved",
             "lead_id": lead_id
         }
 
-    except ValueError as e:
-        logger.error(f"Email service error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to send contact form: {str(e)}"
-        )
     except Exception as e:
-        logger.error(f"Unexpected error processing contact form: {str(e)}")
+        error_message = str(e)
+
+        # Handle duplicate email constraint
+        if "duplicate key value violates unique constraint" in error_message.lower():
+            logger.warning(f"Lead already exists for email: {form_data.email}")
+            raise HTTPException(
+                status_code=409,
+                detail=f"A contact with email {form_data.email} already exists in our system"
+            )
+
+        # Handle other database errors
+        logger.error(f"Failed to save contact form submission: {error_message}")
         raise HTTPException(
             status_code=500,
             detail="An error occurred while processing your submission"
