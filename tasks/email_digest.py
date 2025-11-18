@@ -216,6 +216,7 @@ async def get_ticket_location_from_bluestakes(ticket_number: str) -> str:
         
         # Get company bluestakes credentials
         company_creds = (get_service_client()
+                        .schema("public")
                         .table("companies")
                         .select("bluestakes_username, bluestakes_password")
                         .eq("id", company_id)
@@ -341,6 +342,7 @@ async def get_company_info_for_digest(project_id: int) -> Dict[str, Any]:
         
         # Get company details
         company_result = (get_service_client()
+                         .schema("public")
                          .table("companies")
                          .select("name")
                          .eq("id", company_id)

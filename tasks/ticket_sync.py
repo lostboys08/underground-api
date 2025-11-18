@@ -218,6 +218,7 @@ async def get_companies_with_bluestakes_credentials() -> List[Dict[str, Any]]:
     """
     try:
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("id, name, bluestakes_username, bluestakes_password")
                  .not_.is_("bluestakes_username", "null")
@@ -240,6 +241,7 @@ async def get_company_with_bluestakes_credentials(company_id: int) -> List[Dict[
     """
     try:
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("id, name, bluestakes_username, bluestakes_password")
                  .eq("id", company_id)

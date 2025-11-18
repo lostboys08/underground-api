@@ -80,6 +80,7 @@ async def update_project_ticket_bluestakes_data(ticket_number: str, company_id: 
     try:
         # Get company Bluestakes credentials
         company_creds = (get_service_client()
+                        .schema("public")
                         .table("companies")
                         .select("bluestakes_username, bluestakes_password")
                         .eq("id", company_id)

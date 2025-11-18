@@ -186,7 +186,7 @@ async def health_check():
         
         if config.is_configured():
             # Test basic connectivity
-            result = config.service_client.table("companies").select("count").limit(1).execute()
+            result = config.service_client.schema("public").table("companies").select("count").limit(1).execute()
             health_status["supabase_connected"] = True
         else:
             health_status["note"] = "Supabase not configured - some features unavailable"
