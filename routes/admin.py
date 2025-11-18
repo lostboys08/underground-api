@@ -54,6 +54,7 @@ async def contact_submit(form_data: ContactFormSubmission):
         }
 
         db_result = (get_service_client()
+                    .schema("crm")
                     .table("leads")
                     .insert(insert_data)
                     .execute())
