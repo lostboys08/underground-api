@@ -215,20 +215,23 @@ async def search_bluestakes_tickets(token: str, search_params: Dict[str, Any], c
 async def get_ticket_details(token: str, ticket_number: str) -> Dict[str, Any]:
     """
     Get full ticket details for a specific ticket from BlueStakes API.
-    
+
     Args:
         token: BlueStakes authentication token
         ticket_number: The ticket number to fetch
-        
+
     Returns:
         Dict containing the full ticket data
     """
+    # Strip whitespace from ticket_number to prevent URL encoding issues
+    ticket_number = ticket_number.strip()
+
     try:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
                 f"{BLUESTAKES_BASE_URL}/tickets/{ticket_number}",
@@ -266,20 +269,23 @@ async def get_ticket_details(token: str, ticket_number: str) -> Dict[str, Any]:
 async def get_ticket_secondary_functions(token: str, ticket_number: str) -> Dict[str, Any]:
     """
     Get secondary functions (update availability) for a specific ticket from BlueStakes API.
-    
+
     Args:
         token: BlueStakes authentication token
         ticket_number: The ticket number to check
-        
+
     Returns:
         Dict containing the secondary functions response
     """
+    # Strip whitespace from ticket_number to prevent URL encoding issues
+    ticket_number = ticket_number.strip()
+
     try:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
                 f"{BLUESTAKES_BASE_URL}/tickets/{ticket_number}/secondary-functions",
@@ -381,7 +387,7 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
     
     return ProjectTicketCreate(
         project_id=None,
-        ticket_number=ticket_data.get("ticket", ""),
+        ticket_number=clean_string(ticket_data.get("ticket", "")) or "",
         replace_by_date=replace_by_date,
         old_ticket=clean_string(ticket_data.get("original_ticket")),
         is_continue_update=is_continue_update,
@@ -442,6 +448,9 @@ async def get_ticket_responses(token: str, ticket_number: str, company_id: Optio
     Returns:
         Dict containing the responses data
     """
+    # Strip whitespace from ticket_number to prevent URL encoding issues
+    ticket_number = ticket_number.strip()
+
     # Use authenticated request with retry if company credentials are provided
     if company_id and username and password:
         return await make_authenticated_request(
