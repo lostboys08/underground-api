@@ -27,19 +27,17 @@ class ProjectTicketCreate(BaseModel):
     # Location & Maps
     place: Optional[str] = None
     street: Optional[str] = None
-    latitude: Optional[str] = None
-    longitude: Optional[str] = None
+    location_description: Optional[str] = None
+    formatted_address: Optional[str] = None
     work_area: Optional[Dict[str, Any]] = None  # GeoJSON data
-    
+
     # Date Fields
     expires: Optional[datetime] = None
     original_date: Optional[datetime] = None
-    
+
     # Work Details
     done_for: Optional[str] = None
     type: Optional[str] = None
-    priority: Optional[str] = None
-    category: Optional[str] = None
     
     # Address Details
     st_from_address: Optional[str] = None
@@ -333,6 +331,66 @@ def parse_bluestakes_datetime(date_str: Optional[str]) -> Optional[datetime]:
             return None
 
 
+def format_address_from_bluestakes_data(ticket_data: Dict[str, Any]) -> str:
+    """
+    Format address string from Bluestakes ticket data.
+
+    This function creates a human-readable address string using:
+    - Street name with from/to addresses
+    - Cross streets (if available)
+
+    Examples:
+    - "123-456 Main St at Oak Ave"
+    - "Main St between Oak Ave and Elm St"
+    - "Main St"
+
+    Args:
+        ticket_data: The Bluestakes ticket data dictionary
+
+    Returns:
+        Formatted address string
+    """
+    try:
+        street = ticket_data.get("street")
+        st_from_address = ticket_data.get("st_from_address")
+        st_to_address = ticket_data.get("st_to_address")
+        cross1 = ticket_data.get("cross1")
+        cross2 = ticket_data.get("cross2")
+
+        if not street:
+            return "Address not available"
+
+        address_parts = []
+
+        # Handle street with from/to addresses
+        if st_from_address and st_to_address and st_from_address != "0" and st_to_address != "0":
+            if st_from_address == st_to_address:
+                address_parts.append(f"{st_from_address} {street}")
+            else:
+                address_parts.append(f"{st_from_address}-{st_to_address} {street}")
+        else:
+            address_parts.append(street)
+
+        # Add cross streets if available
+        cross_streets = []
+        if cross1 and cross1 != " ":
+            cross_streets.append(cross1)
+        if cross2 and cross2 != " ":
+            cross_streets.append(cross2)
+
+        if cross_streets:
+            if len(cross_streets) == 1:
+                address_parts.append(f"at {cross_streets[0]}")
+            else:
+                address_parts.append(f"between {cross_streets[0]} and {cross_streets[1]}")
+
+        return " ".join(address_parts)
+
+    except Exception as e:
+        logger.warning(f"Error formatting address: {str(e)}")
+        return "Address not available"
+
+
 def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], company_id: int = 1) -> ProjectTicketCreate:
     """
     Transform BlueStakes ticket data to ProjectTicketCreate model with all fields
@@ -391,20 +449,18 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
         # Location & Maps
         place=clean_string(ticket_data.get("place")),
         street=clean_string(ticket_data.get("street")),
-        latitude=clean_string(ticket_data.get("latitude")),
-        longitude=clean_string(ticket_data.get("longitude")),
+        location_description=clean_string(ticket_data.get("location")),
+        formatted_address=format_address_from_bluestakes_data(ticket_data),
         work_area=work_area,
-        
+
         # Date Fields
         expires=expires,
         original_date=original_date,
-        
+
         # Work Details
         done_for=clean_string(ticket_data.get("done_for")),
         type=clean_string(ticket_data.get("type")),
-        priority=clean_string(ticket_data.get("priority")),
-        category=clean_string(ticket_data.get("category")),
-        
+
         # Address Details
         st_from_address=clean_string(ticket_data.get("st_from_address")),
         st_to_address=clean_string(ticket_data.get("st_to_address")),
@@ -413,10 +469,10 @@ def transform_bluestakes_ticket_to_project_ticket(ticket_data: Dict[str, Any], c
         county=clean_string(ticket_data.get("county")),
         state=clean_string(ticket_data.get("state")),
         zip=clean_string(ticket_data.get("zip")),
-        
+
         # Contact Information
-        name=clean_string(ticket_data.get("name")),
-        phone=clean_string(ticket_data.get("phone")),
+        name=clean_string(ticket_data.get("contact")),
+        phone=clean_string(ticket_data.get("contact_phone")),
         email=clean_string(ticket_data.get("email")),
         
         # Ticket Management

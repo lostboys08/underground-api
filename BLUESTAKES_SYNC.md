@@ -10,9 +10,9 @@ The `project_tickets` table has been extended with 30+ new columns to store Blue
 
 ### Location & Maps
 - `place` - City name
-- `street` - Street name  
-- `latitude` - Latitude coordinate
-- `longitude` - Longitude coordinate
+- `street` - Street name
+- `location_description` - Location description from Bluestakes API "location" field
+- `formatted_address` - Pre-calculated formatted address string for display (e.g., "123-456 Main St at Oak Ave")
 - `work_area` - **GeoJSON polygon data (JSONB)** for map display
 
 ### Date Fields
@@ -22,8 +22,6 @@ The `project_tickets` table has been extended with 30+ new columns to store Blue
 ### Work Details
 - `done_for` - Work recipient
 - `type` - Ticket type
-- `priority` - Priority level
-- `category` - Ticket category
 
 ### Address Details
 - `st_from_address` - Address range start
@@ -35,9 +33,16 @@ The `project_tickets` table has been extended with 30+ new columns to store Blue
 - `zip` - Zip code
 
 ### Contact Information
-- `name` - Primary contact name
-- `phone` - Primary phone
+- `name` - Primary contact name (from API "contact" field)
+- `phone` - Primary phone (from API "contact_phone" field)
 - `email` - Contact email
+
+### Removed Fields (December 2024)
+The following fields have been removed as they are redundant or not used:
+- `latitude` - Removed (coordinate data available in work_area GeoJSON)
+- `longitude` - Removed (coordinate data available in work_area GeoJSON)
+- `priority` - Removed (not used by application)
+- `category` - Removed (not used by application)
 
 ### Ticket Management
 - `revision` - Revision number

@@ -256,44 +256,45 @@ async def get_ticket_location_from_bluestakes(ticket_number: str) -> str:
 async def get_project_tickets_for_digest(project_id: int) -> List[Dict[str, Any]]:
     """
     Get active tickets for a project that should be included in the weekly digest.
-    Fetches bluestakes data for location information.
-    
+    Uses cached formatted_address from database for improved performance.
+
     Args:
         project_id: The project ID to get tickets for
-        
+
     Returns:
         List of ticket dictionaries with formatted data including location
     """
     try:
         # Query for active tickets in the project (only continue update tickets)
+        # Now includes formatted_address to avoid individual API calls
         result = (get_service_client()
                  .table("project_tickets")
-                 .select("ticket_number, replace_by_date, legal_date, is_continue_update")
+                 .select("ticket_number, replace_by_date, legal_date, is_continue_update, formatted_address")
                  .eq("project_id", project_id)
                  .eq("is_continue_update", True)
                  .not_.is_("replace_by_date", "null")
                  .execute())
-        
+
         if not result.data:
             return []
-        
+
         # Format tickets for template
         formatted_tickets = []
         for ticket in result.data:
             # Format dates as "weekday, month date" (e.g., "Monday, January 15")
             replace_by_date = datetime.fromisoformat(ticket["replace_by_date"].replace("Z", "+00:00"))
             replace_by_formatted = replace_by_date.strftime("%A, %B %d")
-            
+
             legal_date_formatted = "N/A"
             if ticket.get("legal_date"):
                 legal_date = datetime.fromisoformat(ticket["legal_date"].replace("Z", "+00:00"))
                 legal_date_formatted = legal_date.strftime("%A, %B %d")
-            
+
             # All tickets in digest are continue update tickets
             ticket_meta = "Continue Update"
-            
-            # Get location from bluestakes data
-            location = await get_ticket_location_from_bluestakes(ticket["ticket_number"])
+
+            # Use cached formatted_address from database instead of making API calls
+            location = ticket.get("formatted_address") or "Location not available"
             
             formatted_tickets.append({
                 "ticket_number": ticket["ticket_number"],
