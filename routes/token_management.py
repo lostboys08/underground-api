@@ -82,6 +82,7 @@ async def store_bluestakes_credentials(
         
         # Step 2: Verify company exists
         company_check = (get_service_client()
+                        .schema("public")
                         .table("companies")
                         .select("id, name")
                         .eq("id", company_id)
@@ -142,7 +143,9 @@ async def store_bluestakes_credentials(
         
         # Step 5: Store encrypted credentials in database
         try:
-            result = (get_service_client().table("companies")
+            result = (get_service_client()
+                     .schema("public")
+                     .table("companies")
                      .update({
                          "bluestakes_username": username,
                          "bluestakes_password": encrypted_password

@@ -7,7 +7,7 @@ from typing import Optional
 import os
 import logging
 from datetime import datetime
-from tasks.jobs import sync_bluestakes_tickets, sync_updateable_tickets, send_weekly_project_digest, sync_existing_tickets_bluestakes_data
+from tasks.jobs import sync_bluestakes_tickets, send_weekly_project_digest, sync_existing_tickets_bluestakes_data
 
 logger = logging.getLogger(__name__)
 
@@ -80,49 +80,7 @@ async def daily_update(
         "job": "sync_bluestakes_tickets",
         "parameters": {
             "company_id": None,
-            "days_back": 2
-        }
-    }
-
-
-@cron_router.post("/sync-updatable-tickets")
-async def sync_updatable_tickets_cron(
-    background_tasks: BackgroundTasks,
-    x_cron_secret: Optional[str] = Header(None),
-    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies")
-):
-    """
-    Sync updateable tickets job - queries database for tickets meeting criteria,
-    verifies them via BlueStakes API, and populates the updateable_tickets table.
-    
-    This endpoint should run on the same schedule as the daily update to maintain
-    the updateable tickets table with current verification status.
-    
-    Headers:
-        X-CRON-SECRET: Secret key for cron job authentication
-        
-    Query Parameters:
-        company_id: Optional company ID to sync (syncs all if not provided)
-        
-    Returns:
-        JSON response indicating the job was queued successfully
-    """
-    verify_cron_secret(x_cron_secret)
-    
-    if company_id:
-        logger.info(f"Updateable tickets sync cron job triggered for company {company_id}")
-    else:
-        logger.info("Updateable tickets sync cron job triggered for all companies")
-    
-    # Add the job to background tasks
-    background_tasks.add_task(sync_updateable_tickets, company_id)
-    
-    return {
-        "status": "success",
-        "message": "Updatable tickets sync job queued successfully",
-        "job": "sync_updateable_tickets",
-        "parameters": {
-            "company_id": company_id
+            "days_back": 14
         }
     }
 
@@ -214,6 +172,56 @@ async def sync_bluestakes_data_cron(
     }
 
 
+@cron_router.post("/sync-bluestakes-tickets")
+async def sync_bluestakes_tickets_cron(
+    background_tasks: BackgroundTasks,
+    x_cron_secret: Optional[str] = Header(None),
+    company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
+    days_back: int = Query(default=28, ge=1, le=90, description="Number of days to look back (default 28, max 90)")
+):
+    """
+    Sync BlueStakes tickets - fetches NEW tickets from the API and stores them.
+
+    Use this endpoint to:
+    - Backfill tickets for a newly setup company (e.g., days_back=28 for 4 weeks)
+    - Manually trigger a full sync for a specific company
+    - Run a catch-up sync after downtime
+
+    This endpoint fetches tickets from the BlueStakes API search endpoint and inserts
+    any tickets that don't already exist in the database. It paginates through all
+    results automatically.
+
+    Headers:
+        X-CRON-SECRET: Secret key for cron job authentication
+
+    Query Parameters:
+        company_id: Optional company ID to sync (syncs all if not provided)
+        days_back: Number of days to look back (default: 28, max: 90)
+
+    Returns:
+        JSON response indicating the job was queued successfully
+    """
+    verify_cron_secret(x_cron_secret)
+
+    if company_id:
+        logger.info(f"BlueStakes tickets sync triggered for company {company_id}, {days_back} days back")
+    else:
+        logger.info(f"BlueStakes tickets sync triggered for all companies, {days_back} days back")
+
+    # Add the job to background tasks
+    background_tasks.add_task(sync_bluestakes_tickets, company_id, days_back)
+
+    return {
+        "status": "success",
+        "message": "BlueStakes tickets sync job queued successfully",
+        "job": "sync_bluestakes_tickets",
+        "parameters": {
+            "company_id": company_id,
+            "days_back": days_back
+        }
+    }
+
+
 @cron_router.get("/status")
 async def cron_status(x_cron_secret: Optional[str] = Header(None)):
     """
@@ -258,12 +266,6 @@ async def cron_status(x_cron_secret: Optional[str] = Header(None)):
                 "endpoint": "/cron/send-notifications",
                 "method": "POST",
                 "description": "Send general notification emails"
-            },
-            {
-                "endpoint": "/cron/sync-updatable-tickets",
-                "method": "POST",
-                "description": "Sync updateable tickets with BlueStakes verification",
-                "parameters": ["company_id"]
             },
             {
                 "endpoint": "/cron/send-weekly-project-digest",

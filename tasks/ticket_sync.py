@@ -9,11 +9,13 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from config.supabase_client import get_service_client
 from utils.bluestakes import (
-    get_bluestakes_auth_token, 
-    search_bluestakes_tickets, 
+    get_bluestakes_auth_token,
+    search_bluestakes_tickets,
     transform_bluestakes_ticket_to_project_ticket
 )
 from utils.encryption import safe_decrypt_password, EncryptionError
+from tasks.response_sync import sync_bluestakes_responses
+from tasks.updatable_tickets import sync_updateable_tickets
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,10 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         "tickets_skipped": 0,
         "tickets_linked": 0,
         "old_tickets_updated": 0,
+        "updateable_tickets_checked": 0,
+        "updateable_tickets_found": 0,
+        "responses_synced": 0,
+        "responses_failed": 0,
         "errors": []
     }
     
@@ -104,7 +110,35 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                    f"{sync_stats['tickets_skipped']} skipped, "
                    f"{sync_stats.get('tickets_linked', 0)} linked to projects, "
                    f"{sync_stats.get('old_tickets_updated', 0)} old tickets updated.")
-        
+
+        # Step 5: Sync updateable tickets
+        logger.info("Starting updateable tickets sync...")
+        try:
+            updateable_stats = await sync_updateable_tickets(company_id)
+            sync_stats["updateable_tickets_checked"] = updateable_stats.get("tickets_checked", 0)
+            sync_stats["updateable_tickets_found"] = updateable_stats.get("updateable_tickets_found", 0)
+            logger.info(f"Updateable tickets sync completed: {updateable_stats.get('tickets_checked', 0)} checked, "
+                       f"{updateable_stats.get('updateable_tickets_found', 0)} updateable found")
+        except Exception as e:
+            logger.error(f"Error syncing updateable tickets: {str(e)}")
+            sync_stats["updateable_tickets_checked"] = 0
+            sync_stats["updateable_tickets_found"] = 0
+            sync_stats["errors"].append(f"Updateable tickets sync error: {str(e)}")
+
+        # Step 6: Sync responses for all active tickets
+        logger.info("Starting BlueStakes responses sync for active tickets...")
+        try:
+            response_stats = await sync_bluestakes_responses(company_id)
+            sync_stats["responses_synced"] = response_stats.get("total_tickets_updated", 0)
+            sync_stats["responses_failed"] = response_stats.get("total_tickets_failed", 0)
+            logger.info(f"Responses sync completed: {response_stats.get('total_tickets_updated', 0)} updated, "
+                       f"{response_stats.get('total_tickets_failed', 0)} failed")
+        except Exception as e:
+            logger.error(f"Error syncing responses: {str(e)}")
+            sync_stats["responses_synced"] = 0
+            sync_stats["responses_failed"] = 0
+            sync_stats["errors"].append(f"Responses sync error: {str(e)}")
+
         # Send webhook notification with results
         # TODO: Uncomment when mitchellhub.org webhook server is back online
         # webhook_url = "https://n8n.mitchellhub.org/webhook/171d82c9-2e36-4b1c-9ca8-211fcf9ebaaf"
@@ -120,10 +154,14 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         #         "tickets_skipped": sync_stats['tickets_skipped'],
         #         "tickets_linked": sync_stats.get('tickets_linked', 0),
         #         "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
+        #         "updateable_tickets_checked": sync_stats.get('updateable_tickets_checked', 0),
+        #         "updateable_tickets_found": sync_stats.get('updateable_tickets_found', 0),
+        #         "responses_synced": sync_stats.get('responses_synced', 0),
+        #         "responses_failed": sync_stats.get('responses_failed', 0),
         #         "total_errors": len(sync_stats.get('errors', []))
         #     }
         # }
-        # 
+        #
         # # Send webhook (don't fail the job if webhook fails)
         # try:
         #     webhook_success = await send_webhook(webhook_url, webhook_data)
@@ -133,9 +171,9 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         #         logger.warning("Failed to send webhook notification")
         # except Exception as e:
         #     logger.error(f"Error sending webhook notification: {str(e)}")
-        
+
         logger.info("Webhook notifications temporarily disabled - mitchellhub.org server down")
-        
+
         return sync_stats
         
     except Exception as e:
@@ -180,6 +218,7 @@ async def get_companies_with_bluestakes_credentials() -> List[Dict[str, Any]]:
     """
     try:
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("id, name, bluestakes_username, bluestakes_password")
                  .not_.is_("bluestakes_username", "null")
@@ -202,6 +241,7 @@ async def get_company_with_bluestakes_credentials(company_id: int) -> List[Dict[
     """
     try:
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("id, name, bluestakes_username, bluestakes_password")
                  .eq("id", company_id)
@@ -220,128 +260,143 @@ async def get_company_with_bluestakes_credentials(company_id: int) -> List[Dict[
 
 async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str, Any]) -> Dict[str, int]:
     """
-    Sync tickets for a single company.
+    Sync tickets for a single company with pagination support.
+    Continues fetching until fewer than `limit` tickets are returned.
     """
     company_stats = {"tickets_added": 0, "tickets_skipped": 0}
-    
+
     try:
         # Decrypt the password before using it
         decrypted_password = safe_decrypt_password(company["bluestakes_password"])
     except EncryptionError as e:
         logger.error(f"Failed to decrypt password for company {company['id']}: {str(e)}")
         raise Exception(f"Password decryption failed for company {company['id']}: {str(e)}")
-    
+
     # Step 1: Authenticate with BlueStakes API (with caching)
     token = await get_bluestakes_auth_token(
-        company["bluestakes_username"], 
+        company["bluestakes_username"],
         decrypted_password,
         company["id"]  # Pass company_id for token caching
     )
-    
-    # Step 2: Search for tickets (with retry support)
-    bluestakes_response = await search_bluestakes_tickets(
-        token, 
-        search_params,
-        company["id"],  # Pass company_id for retry logic
-        company["bluestakes_username"],
-        decrypted_password
-    )
-    
-    # Step 3: Process tickets
+
+    # Step 2: Paginate through all tickets
+    limit = search_params.get("limit", 100)
+    offset = 0
+
+    while True:
+        # Build paginated search params
+        paginated_params = {**search_params, "offset": offset}
+
+        logger.info(f"Fetching tickets for company {company['id']} with offset {offset}, limit {limit}")
+
+        # Search for tickets (with retry support)
+        bluestakes_response = await search_bluestakes_tickets(
+            token,
+            paginated_params,
+            company["id"],
+            company["bluestakes_username"],
+            decrypted_password
+        )
+
+        # Extract tickets from response
+        tickets_data = _extract_tickets_from_response(bluestakes_response)
+
+        if not tickets_data:
+            logger.info(f"No more tickets found for company {company['id']} at offset {offset}")
+            break
+
+        tickets_fetched = len(tickets_data)
+        logger.info(f"Fetched {tickets_fetched} tickets for company {company['id']} at offset {offset}")
+
+        # Process this batch of tickets
+        batch_stats = await _process_ticket_batch(tickets_data, token, company["id"])
+        company_stats["tickets_added"] += batch_stats["tickets_added"]
+        company_stats["tickets_skipped"] += batch_stats["tickets_skipped"]
+
+        # If we got fewer tickets than the limit, we've reached the end
+        if tickets_fetched < limit:
+            logger.info(f"Reached end of tickets for company {company['id']} (got {tickets_fetched} < {limit})")
+            break
+
+        # Move to next page
+        offset += limit
+
+        # Small delay between pages to be respectful to the API
+        await asyncio.sleep(0.5)
+
+    logger.info(f"Finished syncing company {company['id']}: {company_stats['tickets_added']} added, {company_stats['tickets_skipped']} skipped")
+    return company_stats
+
+
+def _extract_tickets_from_response(bluestakes_response) -> List[Dict[str, Any]]:
+    """
+    Extract ticket data from various response formats.
+    """
+    tickets_data = []
+
     if isinstance(bluestakes_response, list):
-        for i, response_item in enumerate(bluestakes_response):
+        for response_item in bluestakes_response:
             if isinstance(response_item, dict) and "data" in response_item:
-                tickets_data = response_item.get("data", [])
-                
-                for ticket_data in tickets_data:
-                    if isinstance(ticket_data, dict):
-                        ticket_number = ticket_data.get("ticket")
-                        
-                        if not ticket_number:
-                            logger.warning(f"Ticket missing ticket number, skipping: {ticket_data}")
-                            continue
-                        
-                        # Step 4: Check if ticket already exists
-                        if await ticket_exists(ticket_number):
-                            company_stats["tickets_skipped"] += 1
-                            continue
-                        
-                        # Step 5: Fetch full ticket details and transform
-                        try:
-                            # Get full ticket details from Bluestakes API
-                            from utils.bluestakes import get_ticket_details
-                            full_ticket_data = await get_ticket_details(token, ticket_number)
-                            
-                            # Use full ticket data if available, otherwise fall back to basic data
-                            if full_ticket_data and not full_ticket_data.get("error"):
-                                project_ticket = transform_bluestakes_ticket_to_project_ticket(
-                                    full_ticket_data, company["id"]
-                                )
-                            else:
-                                # Fall back to basic ticket data from search results
-                                project_ticket = transform_bluestakes_ticket_to_project_ticket(
-                                    ticket_data, company["id"]
-                                )
-                            
-                            await insert_project_ticket(project_ticket)
-                            company_stats["tickets_added"] += 1
-                            
-                            # Add small delay to respect API rate limits
-                            await asyncio.sleep(0.1)
-                            
-                        except Exception as e:
-                            logger.error(f"Error processing ticket {ticket_number}: {str(e)}")
-                            continue
+                tickets_data.extend(response_item.get("data", []))
     elif isinstance(bluestakes_response, dict):
-        # Handle direct dict response with tickets data
         if "data" in bluestakes_response:
             tickets_data = bluestakes_response.get("data", [])
-            
-            for ticket_data in tickets_data:
-                if isinstance(ticket_data, dict):
-                    ticket_number = ticket_data.get("ticket")
-                    
-                    if not ticket_number:
-                        logger.warning(f"Ticket missing ticket number, skipping: {ticket_data}")
-                        continue
-                    
-                    # Check if ticket already exists
-                    if await ticket_exists(ticket_number):
-                        company_stats["tickets_skipped"] += 1
-                        continue
-                    
-                    # Fetch full ticket details and transform
-                    try:
-                        # Get full ticket details from Bluestakes API
-                        from utils.bluestakes import get_ticket_details
-                        full_ticket_data = await get_ticket_details(token, ticket_number)
-                        
-                        # Use full ticket data if available, otherwise fall back to basic data
-                        if full_ticket_data and not full_ticket_data.get("error"):
-                            project_ticket = transform_bluestakes_ticket_to_project_ticket(
-                                full_ticket_data, company["id"]
-                            )
-                        else:
-                            # Fall back to basic ticket data from search results
-                            project_ticket = transform_bluestakes_ticket_to_project_ticket(
-                                ticket_data, company["id"]
-                            )
-                        
-                        await insert_project_ticket(project_ticket)
-                        company_stats["tickets_added"] += 1
-                        
-                        # Add small delay to respect API rate limits
-                        await asyncio.sleep(0.1)
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing ticket {ticket_number}: {str(e)}")
-                        continue
         else:
             logger.warning(f"Dict response does not contain 'data' key. Available keys: {list(bluestakes_response.keys())}")
     else:
         logger.warning(f"Unexpected response type: {type(bluestakes_response)}")
-    
-    return company_stats
+
+    return tickets_data
+
+
+async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], token: str, company_id: int) -> Dict[str, int]:
+    """
+    Process a batch of tickets - check existence, fetch details, and insert.
+    """
+    from utils.bluestakes import get_ticket_details
+
+    batch_stats = {"tickets_added": 0, "tickets_skipped": 0}
+
+    for ticket_data in tickets_data:
+        if not isinstance(ticket_data, dict):
+            continue
+
+        ticket_number = ticket_data.get("ticket")
+
+        if not ticket_number:
+            logger.warning(f"Ticket missing ticket number, skipping: {ticket_data}")
+            continue
+
+        # Check if ticket already exists
+        if await ticket_exists(ticket_number):
+            batch_stats["tickets_skipped"] += 1
+            continue
+
+        # Fetch full ticket details and transform
+        try:
+            full_ticket_data = await get_ticket_details(token, ticket_number)
+
+            # Use full ticket data if available, otherwise fall back to basic data
+            if full_ticket_data and not full_ticket_data.get("error"):
+                project_ticket = transform_bluestakes_ticket_to_project_ticket(
+                    full_ticket_data, company_id
+                )
+            else:
+                project_ticket = transform_bluestakes_ticket_to_project_ticket(
+                    ticket_data, company_id
+                )
+
+            await insert_project_ticket(project_ticket)
+            batch_stats["tickets_added"] += 1
+
+            # Add small delay to respect API rate limits
+            await asyncio.sleep(0.1)
+
+        except Exception as e:
+            logger.error(f"Error processing ticket {ticket_number}: {str(e)}")
+            continue
+
+    return batch_stats
 
 
 async def ticket_exists(ticket_number: str) -> bool:

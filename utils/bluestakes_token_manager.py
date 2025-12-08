@@ -65,6 +65,7 @@ async def get_cached_token(company_id: int) -> Optional[str]:
     """
     try:
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("bluestakes_token, bluestakes_token_expires_at")
                  .eq("id", company_id)
@@ -114,6 +115,7 @@ async def store_token(company_id: int, token: str, ttl_hours: int = DEFAULT_TOKE
         expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
         
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .update({
                      "bluestakes_token": token,
@@ -161,6 +163,7 @@ async def clear_token(company_id: int) -> bool:
     """
     try:
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .update({
                      "bluestakes_token": None,
@@ -194,6 +197,7 @@ async def cleanup_expired_tokens() -> int:
         
         # Find companies with expired tokens
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("id")
                  .not_.is_("bluestakes_token", "null")
@@ -207,6 +211,7 @@ async def cleanup_expired_tokens() -> int:
         
         # Clear expired tokens
         clear_result = (get_service_client()
+                       .schema("public")
                        .table("companies")
                        .update({
                            "bluestakes_token": None,
@@ -237,6 +242,7 @@ async def get_token_stats() -> Dict[str, Any]:
         
         # Get all companies with tokens
         result = (get_service_client()
+                 .schema("public")
                  .table("companies")
                  .select("id, bluestakes_token, bluestakes_token_expires_at")
                  .not_.is_("bluestakes_token", "null")

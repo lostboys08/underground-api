@@ -38,6 +38,7 @@ except ImportError as e:
 from services.job_manager import job_manager, JobStatus
 from tasks.ticket_update_jobs import process_ticket_update_with_semaphore
 from tasks.jobs import update_project_ticket_bluestakes_data, sync_existing_tickets_bluestakes_data
+from tasks.response_sync import sync_ticket_responses
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -369,6 +370,81 @@ async def sync_all_tickets_bluestakes_data(
         
     except Exception as e:
         error_msg = f"Error queueing bulk sync: {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+@router.post("/{ticket_number}/sync-responses")
+async def sync_ticket_responses_endpoint(
+    ticket_number: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    Manually sync responses data for a specific ticket from BlueStakes API.
+
+    This endpoint fetches the responses array from the BlueStakes API for a specific
+    ticket and updates the responses column in the project_tickets table. The responses
+    contain information about utility company responses, status updates, attachments, etc.
+
+    Args:
+        ticket_number: The ticket number to sync responses for
+
+    Returns:
+        JSON response with the updated responses data
+    """
+    try:
+        # First, verify the ticket exists and get its company_id
+        result = (get_service_client()
+                 .table("project_tickets")
+                 .select("company_id")
+                 .eq("ticket_number", ticket_number)
+                 .limit(1)
+                 .execute())
+
+        if not result.data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Ticket {ticket_number} not found in database"
+            )
+
+        company_id = result.data[0]["company_id"]
+
+        # Sync the responses (run directly, not in background, so we can return the data)
+        success = await sync_ticket_responses(ticket_number, company_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to sync responses for ticket {ticket_number}"
+            )
+
+        # Fetch the updated responses to return to the client
+        updated_result = (get_service_client()
+                         .table("project_tickets")
+                         .select("responses")
+                         .eq("ticket_number", ticket_number)
+                         .limit(1)
+                         .execute())
+
+        responses_data = updated_result.data[0].get("responses", []) if updated_result.data else []
+
+        logging.info(f"Responses synced successfully for ticket {ticket_number}")
+
+        return {
+            "status": "success",
+            "message": f"Responses synced successfully for ticket {ticket_number}",
+            "ticket_number": ticket_number,
+            "company_id": company_id,
+            "responses": responses_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Error syncing responses for ticket {ticket_number}: {str(e)}"
         logging.error(error_msg)
         raise HTTPException(
             status_code=500,
