@@ -121,19 +121,17 @@ async def update_project_ticket_bluestakes_data(ticket_number: str, company_id: 
             # Location & Maps
             "place": project_ticket.place,
             "street": project_ticket.street,
-            "latitude": project_ticket.latitude,
-            "longitude": project_ticket.longitude,
+            "location_description": project_ticket.location_description,
+            "formatted_address": project_ticket.formatted_address,
             "work_area": project_ticket.work_area,
-            
+
             # Date Fields
             "expires": project_ticket.expires.date().isoformat() if project_ticket.expires else None,
             "original_date": project_ticket.original_date.date().isoformat() if project_ticket.original_date else None,
-            
+
             # Work Details
             "done_for": project_ticket.done_for,
             "type": project_ticket.type,
-            "priority": project_ticket.priority,
-            "category": project_ticket.category,
             
             # Address Details
             "st_from_address": project_ticket.st_from_address,
