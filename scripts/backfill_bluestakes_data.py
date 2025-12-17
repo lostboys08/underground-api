@@ -2,8 +2,13 @@
 """
 Backfill script for populating existing project_tickets with comprehensive Bluestakes data.
 
-This script updates existing tickets in the project_tickets table with full Bluestakes data
-including location, work_area (GeoJSON), dates, contact info, and other fields.
+DEPRECATED: This script uses the deprecated sync_existing_tickets_bluestakes_data function
+which has been consolidated into sync_bluestakes_tickets for better efficiency.
+
+The consolidated sync_bluestakes_tickets now handles both new tickets and updates in a single pass,
+eliminating the need for separate backfill operations for tickets within the 28-day window.
+
+For tickets older than 28 days, this script still works via backward compatibility wrappers.
 
 Usage:
     python scripts/backfill_bluestakes_data.py [--company-id COMPANY_ID] [--batch-size BATCH_SIZE] [--force]

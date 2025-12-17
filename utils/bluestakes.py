@@ -5,7 +5,7 @@ Shared functions for interacting with the BlueStakes API to avoid circular impor
 import httpx
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
 from pydantic import BaseModel
 
@@ -55,10 +55,13 @@ class ProjectTicketCreate(BaseModel):
     
     # Ticket Management
     revision: Optional[str] = None
-    
+
     # Metadata
     bluestakes_data_updated_at: Optional[datetime] = None
     bluestakes_data: Optional[Dict[str, Any]] = None
+
+    # Responses from utility companies
+    responses: Optional[List[Any]] = None
 
 
 async def get_bluestakes_auth_token(username: str, password: str, company_id: Optional[int] = None) -> str:

@@ -1,13 +1,16 @@
 """
 Cron job endpoints for scheduled tasks.
 These routes are protected by CRON_SECRET and trigger background jobs.
+
+Note: sync_existing_tickets_bluestakes_data has been consolidated into
+sync_bluestakes_tickets for better efficiency.
 """
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Query
 from typing import Optional
 import os
 import logging
 from datetime import datetime
-from tasks.jobs import sync_bluestakes_tickets, send_weekly_project_digest, sync_existing_tickets_bluestakes_data
+from tasks.jobs import sync_bluestakes_tickets, send_weekly_project_digest
 
 logger = logging.getLogger(__name__)
 
@@ -124,50 +127,50 @@ async def sync_bluestakes_data_cron(
     background_tasks: BackgroundTasks,
     x_cron_secret: Optional[str] = Header(None),
     company_id: Optional[int] = Query(default=None, description="Company ID to sync. If not provided, syncs all companies"),
-    max_age_hours: Optional[int] = Query(default=24, description="Only sync tickets older than this many hours"),
-    batch_size: Optional[int] = Query(default=50, description="Number of tickets to process in each batch")
+    max_age_hours: Optional[int] = Query(default=24, description="Deprecated - not used"),
+    batch_size: Optional[int] = Query(default=50, description="Deprecated - not used")
 ):
     """
-    Sync existing project tickets with comprehensive Bluestakes data.
-    
-    This endpoint updates existing tickets in the project_tickets table with full
-    Bluestakes data including location, work_area (GeoJSON), dates, contact info, etc.
-    This eliminates the need for individual API calls during frontend display.
-    
+    DEPRECATED: This endpoint is maintained for backward compatibility only.
+
+    Previously updated existing tickets separately. Now consolidated into
+    sync_bluestakes_tickets which handles both new tickets and updates in one pass.
+
+    This now calls sync_bluestakes_tickets with 28-day lookback, which:
+    - Fetches tickets from BlueStakes (last 28 days)
+    - Inserts new tickets
+    - Updates existing tickets if data is >24h old
+
     Headers:
         X-CRON-SECRET: Secret key for cron job authentication
-        
+
     Query Parameters:
         company_id: Optional company ID to sync (syncs all if not provided)
-        max_age_hours: Only sync tickets older than this many hours (default: 24)
-        batch_size: Number of tickets to process in each batch (default: 50)
-        
+
     Returns:
         JSON response indicating the job was queued successfully
     """
     verify_cron_secret(x_cron_secret)
-    
+
+    logger.warning("/sync-bluestakes-data endpoint is deprecated. Use /daily-update or /sync-bluestakes-tickets instead.")
+
     if company_id:
-        logger.info(f"Bluestakes data sync cron job triggered for company {company_id}")
+        logger.info(f"Bluestakes sync triggered for company {company_id} (via deprecated endpoint)")
     else:
-        logger.info("Bluestakes data sync cron job triggered for all companies")
-    
-    # Add the job to background tasks
-    background_tasks.add_task(
-        sync_existing_tickets_bluestakes_data, 
-        company_id, 
-        batch_size, 
-        max_age_hours
-    )
-    
+        logger.info("Bluestakes sync triggered for all companies (via deprecated endpoint)")
+
+    # Call the consolidated sync function
+    background_tasks.add_task(sync_bluestakes_tickets, company_id, 28)
+
     return {
         "status": "success",
-        "message": "Bluestakes data sync job queued successfully",
-        "job": "sync_existing_tickets_bluestakes_data",
+        "message": "Bluestakes sync job queued successfully (using consolidated sync)",
+        "job": "sync_bluestakes_tickets",
+        "deprecated": True,
+        "migration_note": "This endpoint now calls sync_bluestakes_tickets. Consider updating your cron job configuration.",
         "parameters": {
             "company_id": company_id,
-            "max_age_hours": max_age_hours,
-            "batch_size": batch_size
+            "days_back": 28
         }
     }
 
@@ -180,16 +183,20 @@ async def sync_bluestakes_tickets_cron(
     days_back: int = Query(default=28, ge=1, le=90, description="Number of days to look back (default 28, max 90)")
 ):
     """
-    Sync BlueStakes tickets - fetches NEW tickets from the API and stores them.
+    Sync BlueStakes tickets - consolidated insert and update operation.
+
+    This endpoint now handles both NEW and EXISTING tickets in a single pass:
+    - Fetches tickets from BlueStakes API (last N days)
+    - Inserts new tickets that don't exist
+    - Updates existing tickets if data is >24h old
+    - Links orphaned tickets to projects
+    - Syncs responses and updateable tickets
 
     Use this endpoint to:
     - Backfill tickets for a newly setup company (e.g., days_back=28 for 4 weeks)
+    - Daily sync operations (recommended: days_back=28)
     - Manually trigger a full sync for a specific company
     - Run a catch-up sync after downtime
-
-    This endpoint fetches tickets from the BlueStakes API search endpoint and inserts
-    any tickets that don't already exist in the database. It paginates through all
-    results automatically.
 
     Headers:
         X-CRON-SECRET: Secret key for cron job authentication

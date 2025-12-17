@@ -2,17 +2,17 @@
 BlueStakes ticket synchronization functions.
 These functions handle the synchronization of tickets from the BlueStakes API
 to the local database, including authentication, data transformation, and linking.
+Consolidates both new ticket insertion, existing ticket updates, and response fetching.
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 from config.supabase_client import get_service_client
 from utils.bluestakes import (
     search_bluestakes_tickets,
     transform_bluestakes_ticket_to_project_ticket
 )
-from tasks.response_sync import sync_bluestakes_responses
 from tasks.updatable_tickets import sync_updateable_tickets
 
 logger = logging.getLogger(__name__)
@@ -38,13 +38,12 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         "companies_processed": 0,
         "companies_failed": 0,
         "tickets_added": 0,
+        "tickets_updated": 0,
         "tickets_skipped": 0,
         "tickets_linked": 0,
         "old_tickets_updated": 0,
         "updateable_tickets_checked": 0,
         "updateable_tickets_found": 0,
-        "responses_synced": 0,
-        "responses_failed": 0,
         "errors": []
     }
     
@@ -79,8 +78,9 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                 company_stats = await sync_company_tickets(company, search_params)
                 sync_stats["companies_processed"] += 1
                 sync_stats["tickets_added"] += company_stats["tickets_added"]
+                sync_stats["tickets_updated"] += company_stats["tickets_updated"]
                 sync_stats["tickets_skipped"] += company_stats["tickets_skipped"]
-                
+
             except Exception as e:
                 sync_stats["companies_failed"] += 1
                 error_msg = f"Failed to sync company {company['id']} ({company['name']}): {str(e)}"
@@ -105,6 +105,7 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
                    f"Companies: {sync_stats['companies_processed']} processed, "
                    f"{sync_stats['companies_failed']} failed. "
                    f"Tickets: {sync_stats['tickets_added']} added, "
+                   f"{sync_stats['tickets_updated']} updated, "
                    f"{sync_stats['tickets_skipped']} skipped, "
                    f"{sync_stats.get('tickets_linked', 0)} linked to projects, "
                    f"{sync_stats.get('old_tickets_updated', 0)} old tickets updated.")
@@ -123,19 +124,8 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
             sync_stats["updateable_tickets_found"] = 0
             sync_stats["errors"].append(f"Updateable tickets sync error: {str(e)}")
 
-        # Step 6: Sync responses for all active tickets
-        logger.info("Starting BlueStakes responses sync for active tickets...")
-        try:
-            response_stats = await sync_bluestakes_responses(company_id)
-            sync_stats["responses_synced"] = response_stats.get("total_tickets_updated", 0)
-            sync_stats["responses_failed"] = response_stats.get("total_tickets_failed", 0)
-            logger.info(f"Responses sync completed: {response_stats.get('total_tickets_updated', 0)} updated, "
-                       f"{response_stats.get('total_tickets_failed', 0)} failed")
-        except Exception as e:
-            logger.error(f"Error syncing responses: {str(e)}")
-            sync_stats["responses_synced"] = 0
-            sync_stats["responses_failed"] = 0
-            sync_stats["errors"].append(f"Responses sync error: {str(e)}")
+        # Note: Responses are now fetched inline with ticket data during main sync
+        # No separate response sync step needed
 
         # Send webhook notification with results
         # TODO: Uncomment when mitchellhub.org webhook server is back online
@@ -149,13 +139,12 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         #         "companies_processed": sync_stats['companies_processed'],
         #         "companies_failed": sync_stats['companies_failed'],
         #         "tickets_added": sync_stats['tickets_added'],
+        #         "tickets_updated": sync_stats['tickets_updated'],
         #         "tickets_skipped": sync_stats['tickets_skipped'],
         #         "tickets_linked": sync_stats.get('tickets_linked', 0),
         #         "old_tickets_updated": sync_stats.get('old_tickets_updated', 0),
         #         "updateable_tickets_checked": sync_stats.get('updateable_tickets_checked', 0),
         #         "updateable_tickets_found": sync_stats.get('updateable_tickets_found', 0),
-        #         "responses_synced": sync_stats.get('responses_synced', 0),
-        #         "responses_failed": sync_stats.get('responses_failed', 0),
         #         "total_errors": len(sync_stats.get('errors', []))
         #     }
         # }
@@ -260,8 +249,9 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
     """
     Sync tickets for a single company with pagination support.
     Continues fetching until fewer than `limit` tickets are returned.
+    Handles both new ticket insertion and existing ticket updates.
     """
-    company_stats = {"tickets_added": 0, "tickets_skipped": 0}
+    company_stats = {"tickets_added": 0, "tickets_updated": 0, "tickets_skipped": 0}
     company_id = company["id"]
 
     # Step 1: Paginate through all tickets
@@ -293,6 +283,7 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
         # Process this batch of tickets
         batch_stats = await _process_ticket_batch(tickets_data, company_id)
         company_stats["tickets_added"] += batch_stats["tickets_added"]
+        company_stats["tickets_updated"] += batch_stats["tickets_updated"]
         company_stats["tickets_skipped"] += batch_stats["tickets_skipped"]
 
         # If we got fewer tickets than the limit, we've reached the end
@@ -306,7 +297,8 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
         # Small delay between pages to be respectful to the API
         await asyncio.sleep(0.5)
 
-    logger.info(f"Finished syncing company {company_id}: {company_stats['tickets_added']} added, {company_stats['tickets_skipped']} skipped")
+    logger.info(f"Finished syncing company {company_id}: {company_stats['tickets_added']} added, "
+                f"{company_stats['tickets_updated']} updated, {company_stats['tickets_skipped']} skipped")
     return company_stats
 
 
@@ -331,14 +323,20 @@ def _extract_tickets_from_response(bluestakes_response) -> List[Dict[str, Any]]:
     return tickets_data
 
 
-async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], company_id: int) -> Dict[str, int]:
+async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], company_id: int, max_age_hours: int = 24) -> Dict[str, int]:
     """
-    Process a batch of tickets - check existence, fetch details, and insert.
+    Process a batch of tickets - check existence, fetch details, and insert or update.
+    Consolidates new ticket insertion and existing ticket updates.
+
+    Args:
+        tickets_data: List of ticket data from BlueStakes API
+        company_id: Company ID for authentication
+        max_age_hours: Maximum age in hours before update is needed (default 24)
     """
     from utils.bluestakes import get_ticket_details
     from utils.bluestakes_token_manager import get_token_for_company
 
-    batch_stats = {"tickets_added": 0, "tickets_skipped": 0}
+    batch_stats = {"tickets_added": 0, "tickets_updated": 0, "tickets_skipped": 0}
 
     # Get cached token for this company (used for get_ticket_details calls)
     token = await get_token_for_company(company_id)
@@ -353,13 +351,10 @@ async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], company_id: 
             logger.warning(f"Ticket missing ticket number, skipping: {ticket_data}")
             continue
 
-        # Check if ticket already exists
-        if await ticket_exists(ticket_number):
-            logger.info(f"Skipping ticket {ticket_number} - already exists in database")
-            batch_stats["tickets_skipped"] += 1
-            continue
+        # Check if ticket exists and get current data
+        sync_status = await get_existing_ticket_sync_status(ticket_number, max_age_hours)
 
-        # Fetch full ticket details and transform
+        # Fetch full ticket details and transform (we need this for both new and existing)
         try:
             full_ticket_data = await get_ticket_details(token, ticket_number)
 
@@ -373,8 +368,32 @@ async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], company_id: 
                     ticket_data, company_id
                 )
 
-            await insert_project_ticket(project_ticket)
-            batch_stats["tickets_added"] += 1
+            # Fetch responses data for this ticket
+            try:
+                from utils.bluestakes import get_ticket_responses
+                responses_data = await get_ticket_responses(ticket_number, company_id)
+                # Extract the responses array from the response
+                responses_array = responses_data.get("responses", []) if responses_data else []
+                project_ticket.responses = responses_array
+            except Exception as e:
+                logger.warning(f"Could not fetch responses for ticket {ticket_number}: {str(e)}")
+                project_ticket.responses = []
+
+            # Insert or update based on existence and data changes
+            if sync_status["exists"]:
+                # Ticket exists - check if data has changed
+                if has_ticket_data_changed(sync_status["data"], project_ticket):
+                    await update_project_ticket(project_ticket)
+                    batch_stats["tickets_updated"] += 1
+                    logger.info(f"Updated ticket {ticket_number} - data changed")
+                else:
+                    batch_stats["tickets_skipped"] += 1
+                    logger.debug(f"Skipping ticket {ticket_number} - no changes detected")
+            else:
+                # New ticket - insert
+                await insert_project_ticket(project_ticket)
+                batch_stats["tickets_added"] += 1
+                logger.debug(f"Inserted new ticket {ticket_number}")
 
             # Add small delay to respect API rate limits
             await asyncio.sleep(0.1)
@@ -386,23 +405,153 @@ async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], company_id: 
     return batch_stats
 
 
-async def ticket_exists(ticket_number: str) -> bool:
+def has_ticket_data_changed(existing_data: Dict[str, Any], new_project_ticket) -> bool:
     """
-    Check if a ticket already exists in the database.
+    Compare existing ticket data with new data to detect changes.
+
+    Args:
+        existing_data: Current ticket data from database
+        new_project_ticket: New ProjectTicketCreate object from API
+
+    Returns:
+        True if data has changed and update is needed, False otherwise
+    """
+    try:
+        # Helper to normalize values for comparison
+        def normalize(val):
+            if val is None or val == "":
+                return None
+            if isinstance(val, str):
+                return val.strip()
+            return val
+
+        # Helper to compare date values
+        def dates_equal(db_val, new_val):
+            if db_val is None and new_val is None:
+                return True
+            if db_val is None or new_val is None:
+                return False
+            # Convert new_val datetime to date string for comparison
+            if hasattr(new_val, 'date'):
+                new_val = new_val.date().isoformat()
+            elif hasattr(new_val, 'isoformat'):
+                new_val = new_val.isoformat()
+            return str(db_val) == str(new_val)
+
+        # Check all the fields that matter for ticket data
+        checks = [
+            # Location & Maps
+            normalize(existing_data.get("place")) != normalize(new_project_ticket.place),
+            normalize(existing_data.get("street")) != normalize(new_project_ticket.street),
+            normalize(existing_data.get("location_description")) != normalize(new_project_ticket.location_description),
+            normalize(existing_data.get("formatted_address")) != normalize(new_project_ticket.formatted_address),
+            existing_data.get("work_area") != new_project_ticket.work_area,
+
+            # Dates
+            not dates_equal(existing_data.get("expires"), new_project_ticket.expires),
+            not dates_equal(existing_data.get("original_date"), new_project_ticket.original_date),
+            not dates_equal(existing_data.get("replace_by_date"), new_project_ticket.replace_by_date),
+            not dates_equal(existing_data.get("legal_date"), new_project_ticket.legal_date),
+
+            # Work Details
+            normalize(existing_data.get("done_for")) != normalize(new_project_ticket.done_for),
+            normalize(existing_data.get("type")) != normalize(new_project_ticket.type),
+
+            # Address
+            normalize(existing_data.get("st_from_address")) != normalize(new_project_ticket.st_from_address),
+            normalize(existing_data.get("st_to_address")) != normalize(new_project_ticket.st_to_address),
+            normalize(existing_data.get("cross1")) != normalize(new_project_ticket.cross1),
+            normalize(existing_data.get("cross2")) != normalize(new_project_ticket.cross2),
+            normalize(existing_data.get("county")) != normalize(new_project_ticket.county),
+            normalize(existing_data.get("state")) != normalize(new_project_ticket.state),
+            normalize(existing_data.get("zip")) != normalize(new_project_ticket.zip),
+
+            # Contact
+            normalize(existing_data.get("name")) != normalize(new_project_ticket.name),
+            normalize(existing_data.get("phone")) != normalize(new_project_ticket.phone),
+            normalize(existing_data.get("email")) != normalize(new_project_ticket.email),
+
+            # Ticket Management
+            normalize(existing_data.get("revision")) != normalize(new_project_ticket.revision),
+            normalize(existing_data.get("old_ticket")) != normalize(new_project_ticket.old_ticket),
+            existing_data.get("is_continue_update") != new_project_ticket.is_continue_update,
+
+            # Responses (check if responses have changed)
+            existing_data.get("responses") != getattr(new_project_ticket, "responses", None),
+        ]
+
+        # Return True if any field has changed
+        return any(checks)
+
+    except Exception as e:
+        logger.error(f"Error comparing ticket data: {str(e)}")
+        # On error, assume data has changed to trigger update
+        return True
+
+
+async def get_existing_ticket_data(ticket_number: str) -> Dict[str, Any]:
+    """
+    Fetch existing ticket data from database for comparison.
+
+    Args:
+        ticket_number: The ticket number to fetch
+
+    Returns:
+        Dict with ticket data or empty dict if not found
     """
     try:
         result = (get_service_client()
                  .table("project_tickets")
-                 .select("ticket_number")
+                 .select("*")
                  .eq("ticket_number", ticket_number)
                  .limit(1)
                  .execute())
-        
-        return bool(result.data)
-        
+
+        if not result.data:
+            return {}
+
+        return result.data[0]
+
     except Exception as e:
-        logger.error(f"Error checking if ticket exists: {str(e)}")
-        return False  # Assume it doesn't exist to avoid blocking inserts
+        logger.error(f"Error fetching existing ticket data for {ticket_number}: {str(e)}")
+        return {}
+
+
+async def get_existing_ticket_sync_status(ticket_number: str, max_age_hours: int = 24) -> Dict[str, Any]:
+    """
+    Check if a ticket exists and fetch its data for change comparison.
+
+    Note: max_age_hours parameter is deprecated but kept for backward compatibility.
+    Now uses change-based detection instead of time-based.
+
+    Args:
+        ticket_number: The ticket number to check
+        max_age_hours: Deprecated - kept for backward compatibility
+
+    Returns:
+        Dict with 'exists' (bool), 'needs_sync' (bool), and 'data' (Dict) keys
+    """
+    try:
+        existing_data = await get_existing_ticket_data(ticket_number)
+
+        if not existing_data:
+            return {"exists": False, "needs_sync": False, "data": {}}
+
+        # Ticket exists - we'll determine needs_sync after comparing with new data
+        return {"exists": True, "needs_sync": True, "data": existing_data}
+
+    except Exception as e:
+        logger.error(f"Error checking ticket sync status for {ticket_number}: {str(e)}")
+        return {"exists": False, "needs_sync": False, "data": {}}
+
+
+async def ticket_exists(ticket_number: str) -> bool:
+    """
+    Check if a ticket already exists in the database.
+    (Legacy function - use get_existing_ticket_sync_status for more details)
+    """
+    status = await get_existing_ticket_sync_status(ticket_number)
+    return status["exists"]
 
 
 async def insert_project_ticket(project_ticket) -> bool:
@@ -453,9 +602,12 @@ async def insert_project_ticket(project_ticket) -> bool:
             
             # Metadata
             "bluestakes_data_updated_at": project_ticket.bluestakes_data_updated_at.isoformat() if project_ticket.bluestakes_data_updated_at else None,
-            "bluestakes_data": project_ticket.bluestakes_data
+            "bluestakes_data": project_ticket.bluestakes_data,
+
+            # Responses from utility companies
+            "responses": project_ticket.responses if hasattr(project_ticket, 'responses') else []
         }
-        
+
         result = (get_service_client()
                  .table("project_tickets")
                  .insert(insert_data)
@@ -465,6 +617,70 @@ async def insert_project_ticket(project_ticket) -> bool:
         
     except Exception as e:
         logger.error(f"Error inserting project ticket: {str(e)}")
+        raise
+
+
+async def update_project_ticket(project_ticket) -> bool:
+    """
+    Update an existing project ticket with fresh Bluestakes data.
+    Does not update project_id, ticket_number, or company_id (immutable fields).
+    """
+    try:
+        update_data = {
+            # Location & Maps
+            "place": project_ticket.place,
+            "street": project_ticket.street,
+            "location_description": project_ticket.location_description,
+            "formatted_address": project_ticket.formatted_address,
+            "work_area": project_ticket.work_area,
+
+            # Date Fields
+            "expires": project_ticket.expires.date().isoformat() if project_ticket.expires else None,
+            "original_date": project_ticket.original_date.date().isoformat() if project_ticket.original_date else None,
+            "replace_by_date": project_ticket.replace_by_date.isoformat() if project_ticket.replace_by_date else None,
+            "legal_date": project_ticket.legal_date.isoformat() if project_ticket.legal_date else None,
+
+            # Work Details
+            "done_for": project_ticket.done_for,
+            "type": project_ticket.type,
+
+            # Address Details
+            "st_from_address": project_ticket.st_from_address,
+            "st_to_address": project_ticket.st_to_address,
+            "cross1": project_ticket.cross1,
+            "cross2": project_ticket.cross2,
+            "county": project_ticket.county,
+            "state": project_ticket.state,
+            "zip": project_ticket.zip,
+
+            # Contact Information
+            "name": project_ticket.name,
+            "phone": project_ticket.phone,
+            "email": project_ticket.email,
+
+            # Ticket Management
+            "revision": project_ticket.revision,
+            "old_ticket": project_ticket.old_ticket,
+            "is_continue_update": project_ticket.is_continue_update,
+
+            # Metadata
+            "bluestakes_data_updated_at": project_ticket.bluestakes_data_updated_at.isoformat() if project_ticket.bluestakes_data_updated_at else None,
+            "bluestakes_data": project_ticket.bluestakes_data,
+
+            # Responses from utility companies
+            "responses": project_ticket.responses if hasattr(project_ticket, 'responses') else []
+        }
+
+        result = (get_service_client()
+                 .table("project_tickets")
+                 .update(update_data)
+                 .eq("ticket_number", project_ticket.ticket_number)
+                 .execute())
+
+        return bool(result.data)
+
+    except Exception as e:
+        logger.error(f"Error updating project ticket {project_ticket.ticket_number}: {str(e)}")
         raise
 
 

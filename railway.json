@@ -7,22 +7,5 @@
     "startCommand": "python -m playwright install --with-deps chromium && python startup.py",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
-  },
-  "cron": [
-    {
-      "name": "daily-update",
-      "schedule": "0 3 * * *",
-      "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/daily-update"
-    },
-    {
-      "name": "weekly-project-digest",
-      "schedule": "0 9 * * 1",
-      "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/send-weekly-project-digest"
-    },
-    {
-      "name": "sync-bluestakes-data",
-      "schedule": "0 2 * * *",
-      "command": "curl -X POST -H \"X-CRON-SECRET: $CRON_SECRET\" http://localhost:$PORT/cron/sync-bluestakes-data"
-    }
-  ]
+  }
 }
