@@ -7,8 +7,7 @@ import logging
 from datetime import datetime, timezone, date
 from typing import Dict, Any, Optional, List
 from config.supabase_client import get_service_client
-from utils.bluestakes import get_bluestakes_auth_token, get_ticket_responses
-from utils.encryption import safe_decrypt_password, EncryptionError
+from utils.bluestakes import get_ticket_responses
 
 logger = logging.getLogger(__name__)
 
@@ -25,41 +24,10 @@ async def sync_ticket_responses(ticket_number: str, company_id: int) -> bool:
         True if sync was successful, False otherwise
     """
     try:
-        # Get company Bluestakes credentials
-        company_creds = (get_service_client()
-                        .schema("public")
-                        .table("companies")
-                        .select("bluestakes_username, bluestakes_password")
-                        .eq("id", company_id)
-                        .not_.is_("bluestakes_username", "null")
-                        .not_.is_("bluestakes_password", "null")
-                        .execute())
-
-        if not company_creds.data:
-            logger.warning(f"No Bluestakes credentials found for company {company_id}")
-            return False
-
-        try:
-            # Decrypt the password before using it
-            decrypted_password = safe_decrypt_password(company_creds.data[0]["bluestakes_password"])
-        except EncryptionError as e:
-            logger.error(f"Failed to decrypt password for company {company_id}: {str(e)}")
-            return False
-
-        # Authenticate with Bluestakes API (with caching)
-        token = await get_bluestakes_auth_token(
-            company_creds.data[0]["bluestakes_username"],
-            decrypted_password,
-            company_id  # Pass company_id for token caching
-        )
-
-        # Get ticket responses
+        # Get ticket responses (uses cached token + auto-retry internally)
         response_data = await get_ticket_responses(
-            token,
             ticket_number,
-            company_id,
-            company_creds.data[0]["bluestakes_username"],
-            decrypted_password
+            company_id
         )
 
         if not response_data:

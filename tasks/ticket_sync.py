@@ -9,11 +9,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from config.supabase_client import get_service_client
 from utils.bluestakes import (
-    get_bluestakes_auth_token,
     search_bluestakes_tickets,
     transform_bluestakes_ticket_to_project_ticket
 )
-from utils.encryption import safe_decrypt_password, EncryptionError
 from tasks.response_sync import sync_bluestakes_responses
 from tasks.updatable_tickets import sync_updateable_tickets
 
@@ -67,11 +65,11 @@ async def sync_bluestakes_tickets(company_id: int = None, days_back: int = 28):
         # Step 2: Calculate date range (last N days)
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days_back)
-        
-        # Format dates for BlueStakes API (assuming ISO format)
+
+        # Format dates for BlueStakes API (MM/DD/YYYY format required)
         search_params = {
-            "start": start_date.strftime("%Y-%m-%d"),
-            "end": end_date.strftime("%Y-%m-%d"),
+            "start": start_date.strftime("%m/%d/%Y"),
+            "end": end_date.strftime("%m/%d/%Y"),
             "limit": 100  # Reasonable limit per company
         }
         
@@ -264,22 +262,9 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
     Continues fetching until fewer than `limit` tickets are returned.
     """
     company_stats = {"tickets_added": 0, "tickets_skipped": 0}
+    company_id = company["id"]
 
-    try:
-        # Decrypt the password before using it
-        decrypted_password = safe_decrypt_password(company["bluestakes_password"])
-    except EncryptionError as e:
-        logger.error(f"Failed to decrypt password for company {company['id']}: {str(e)}")
-        raise Exception(f"Password decryption failed for company {company['id']}: {str(e)}")
-
-    # Step 1: Authenticate with BlueStakes API (with caching)
-    token = await get_bluestakes_auth_token(
-        company["bluestakes_username"],
-        decrypted_password,
-        company["id"]  # Pass company_id for token caching
-    )
-
-    # Step 2: Paginate through all tickets
+    # Step 1: Paginate through all tickets
     limit = search_params.get("limit", 100)
     offset = 0
 
@@ -287,35 +272,32 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
         # Build paginated search params
         paginated_params = {**search_params, "offset": offset}
 
-        logger.info(f"Fetching tickets for company {company['id']} with offset {offset}, limit {limit}")
+        logger.info(f"Fetching tickets for company {company_id} with offset {offset}, limit {limit}")
 
-        # Search for tickets (with retry support)
+        # Search for tickets (uses cached token + auto-retry internally)
         bluestakes_response = await search_bluestakes_tickets(
-            token,
             paginated_params,
-            company["id"],
-            company["bluestakes_username"],
-            decrypted_password
+            company_id
         )
 
         # Extract tickets from response
         tickets_data = _extract_tickets_from_response(bluestakes_response)
 
         if not tickets_data:
-            logger.info(f"No more tickets found for company {company['id']} at offset {offset}")
+            logger.info(f"No more tickets found for company {company_id} at offset {offset}")
             break
 
         tickets_fetched = len(tickets_data)
-        logger.info(f"Fetched {tickets_fetched} tickets for company {company['id']} at offset {offset}")
+        logger.info(f"Fetched {tickets_fetched} tickets for company {company_id} at offset {offset}")
 
         # Process this batch of tickets
-        batch_stats = await _process_ticket_batch(tickets_data, token, company["id"])
+        batch_stats = await _process_ticket_batch(tickets_data, company_id)
         company_stats["tickets_added"] += batch_stats["tickets_added"]
         company_stats["tickets_skipped"] += batch_stats["tickets_skipped"]
 
         # If we got fewer tickets than the limit, we've reached the end
         if tickets_fetched < limit:
-            logger.info(f"Reached end of tickets for company {company['id']} (got {tickets_fetched} < {limit})")
+            logger.info(f"Reached end of tickets for company {company_id} (got {tickets_fetched} < {limit})")
             break
 
         # Move to next page
@@ -324,7 +306,7 @@ async def sync_company_tickets(company: Dict[str, Any], search_params: Dict[str,
         # Small delay between pages to be respectful to the API
         await asyncio.sleep(0.5)
 
-    logger.info(f"Finished syncing company {company['id']}: {company_stats['tickets_added']} added, {company_stats['tickets_skipped']} skipped")
+    logger.info(f"Finished syncing company {company_id}: {company_stats['tickets_added']} added, {company_stats['tickets_skipped']} skipped")
     return company_stats
 
 
@@ -349,13 +331,17 @@ def _extract_tickets_from_response(bluestakes_response) -> List[Dict[str, Any]]:
     return tickets_data
 
 
-async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], token: str, company_id: int) -> Dict[str, int]:
+async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], company_id: int) -> Dict[str, int]:
     """
     Process a batch of tickets - check existence, fetch details, and insert.
     """
     from utils.bluestakes import get_ticket_details
+    from utils.bluestakes_token_manager import get_token_for_company
 
     batch_stats = {"tickets_added": 0, "tickets_skipped": 0}
+
+    # Get cached token for this company (used for get_ticket_details calls)
+    token = await get_token_for_company(company_id)
 
     for ticket_data in tickets_data:
         if not isinstance(ticket_data, dict):
@@ -369,6 +355,7 @@ async def _process_ticket_batch(tickets_data: List[Dict[str, Any]], token: str, 
 
         # Check if ticket already exists
         if await ticket_exists(ticket_number):
+            logger.info(f"Skipping ticket {ticket_number} - already exists in database")
             batch_stats["tickets_skipped"] += 1
             continue
 

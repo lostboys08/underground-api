@@ -16,18 +16,85 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOKEN_TTL_HOURS = 1
 
 
+async def get_token_for_company(company_id: int) -> str:
+    """
+    Get a valid Bluestakes token for the company, automatically fetching credentials
+    and refreshing the token if necessary.
+
+    Args:
+        company_id: Company ID to get token for
+
+    Returns:
+        Valid authentication token
+
+    Raises:
+        HTTPException: If authentication fails or company has no credentials
+    """
+    try:
+        # First, check if we have a valid cached token
+        cached_token = await get_cached_token(company_id)
+        if cached_token:
+            logger.info(f"Using cached token for company {company_id}")
+            return cached_token
+
+        # No valid cached token, fetch credentials and authenticate
+        logger.info(f"No valid cached token for company {company_id}, fetching credentials...")
+
+        # Get company credentials from database
+        result = (get_service_client()
+                 .schema("public")
+                 .table("companies")
+                 .select("bluestakes_username, bluestakes_password")
+                 .eq("id", company_id)
+                 .execute())
+
+        if not result.data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Company {company_id} not found"
+            )
+
+        company_data = result.data[0]
+        username = company_data.get("bluestakes_username")
+        encrypted_password = company_data.get("bluestakes_password")
+
+        if not username or not encrypted_password:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Company {company_id} has no Bluestakes credentials configured"
+            )
+
+        # Decrypt password
+        from utils.encryption import safe_decrypt_password
+        password = safe_decrypt_password(encrypted_password)
+
+        # Authenticate and store new token
+        from utils.bluestakes import get_bluestakes_auth_token_raw
+        new_token = await get_bluestakes_auth_token_raw(username, password)
+        await store_token(company_id, new_token)
+
+        logger.info(f"Successfully authenticated and cached new token for company {company_id}")
+        return new_token
+
+    except Exception as e:
+        logger.error(f"Error getting token for company {company_id}: {str(e)}")
+        raise
+
+
 async def get_or_refresh_token(company_id: int, username: str, password: str) -> str:
     """
     Get a valid Bluestakes token for the company, refreshing if necessary.
-    
+
+    DEPRECATED: Use get_token_for_company() instead, which fetches credentials automatically.
+
     Args:
         company_id: Company ID to get token for
         username: Bluestakes username (for refresh if needed)
         password: Bluestakes password (for refresh if needed)
-        
+
     Returns:
         Valid authentication token
-        
+
     Raises:
         HTTPException: If authentication fails
     """
@@ -37,17 +104,17 @@ async def get_or_refresh_token(company_id: int, username: str, password: str) ->
         if cached_token:
             logger.info(f"Using cached token for company {company_id}")
             return cached_token
-        
+
         # No valid cached token, authenticate and store new token
         logger.info(f"No valid cached token for company {company_id}, authenticating...")
         from utils.bluestakes import get_bluestakes_auth_token_raw
-        
+
         new_token = await get_bluestakes_auth_token_raw(username, password)
         await store_token(company_id, new_token)
-        
+
         logger.info(f"Successfully authenticated and cached new token for company {company_id}")
         return new_token
-        
+
     except Exception as e:
         logger.error(f"Error getting token for company {company_id}: {str(e)}")
         raise

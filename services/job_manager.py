@@ -4,7 +4,7 @@ Provides in-memory job tracking with unique IDs, status management, and result s
 """
 import uuid
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, Any, List
 from enum import Enum
 from dataclasses import dataclass, asdict
@@ -170,11 +170,11 @@ class JobManager:
     def cleanup_old_jobs(self, max_age_hours: int = 24):
         """
         Clean up old completed/failed jobs to prevent memory leaks.
-        
+
         Args:
             max_age_hours: Maximum age in hours for completed jobs
         """
-        cutoff_time = datetime.now(timezone.utc).replace(hour=datetime.now().hour - max_age_hours)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         
         jobs_to_remove = []
         for job_id, job in self._jobs.items():

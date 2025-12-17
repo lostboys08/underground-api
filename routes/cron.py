@@ -69,18 +69,18 @@ async def daily_update(
     verify_cron_secret(x_cron_secret)
     
     logger.info("Daily update cron job triggered")
-    
+
     # Add the job to background tasks so we can respond immediately
-    # Use default parameters: all companies, 2 days back
-    background_tasks.add_task(sync_bluestakes_tickets, None, 2)
-    
+    # Use default parameters: all companies, 28 days back
+    background_tasks.add_task(sync_bluestakes_tickets, None, 28)
+
     return {
         "status": "success",
         "message": "Daily update job queued successfully",
         "job": "sync_bluestakes_tickets",
         "parameters": {
             "company_id": None,
-            "days_back": 14
+            "days_back": 28
         }
     }
 
