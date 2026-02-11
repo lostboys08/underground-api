@@ -474,7 +474,7 @@ def has_ticket_data_changed(existing_data: Dict[str, Any], new_project_ticket) -
             # Ticket Management
             normalize(existing_data.get("revision")) != normalize(new_project_ticket.revision),
             normalize(existing_data.get("old_ticket")) != normalize(new_project_ticket.old_ticket),
-            existing_data.get("is_continue_update") != new_project_ticket.is_continue_update,
+            # Note: is_continue_update is intentionally NOT compared to preserve user settings
 
             # Responses (check if responses have changed)
             existing_data.get("responses") != getattr(new_project_ticket, "responses", None),
@@ -661,7 +661,7 @@ async def update_project_ticket(project_ticket) -> bool:
             # Ticket Management
             "revision": project_ticket.revision,
             "old_ticket": project_ticket.old_ticket,
-            "is_continue_update": project_ticket.is_continue_update,
+            # Note: is_continue_update is intentionally NOT updated here to preserve user settings
 
             # Metadata
             "bluestakes_data_updated_at": project_ticket.bluestakes_data_updated_at.isoformat() if project_ticket.bluestakes_data_updated_at else None,
